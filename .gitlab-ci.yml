@@ -1,0 +1,16 @@
+stages:
+  - test
+
+test:
+  stage: test
+  image: trenneman/elm-ci:0.19.0
+  before_script:
+    - elm make
+    - sed -i 's/new DataView(bytes.buffer, offset, len)/new DataView(bytes.buffer, bytes.byteOffset + offset, len)/' ~/.elm/0.19.0/package/elm/bytes/1.0.7/src/Elm/Kernel/Bytes.js
+    - rm ~/.elm/0.19.0/package/elm/bytes/1.0.7/*.dat
+  script:
+    - elm-format --validate src/
+    - elm-test 
+  tags:
+    - docker
+
