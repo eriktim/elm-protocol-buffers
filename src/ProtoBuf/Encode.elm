@@ -1,205 +1,536 @@
 module ProtoBuf.Encode exposing
-    ( Encoder
-    , FieldEncoder
+    ( encode, Encoder, message
+    , int32, uint32, sint32, fixed32, sfixed32
+    , double, float
+    , string
     , bool
     , bytes
-    , double
-    , embedded
-    , encode
-    , fixed32
-    , float
-    , int32
-    , message
-    , repeated
-    , sfixed32
-    , sint32
-    , string
-    , uint32
+    , none
+    , list, dict
     )
+
+{-| Library for turning Elm values into [ProtoBuf](https://developers.google.com/protocol-buffers) messages.
+
+> The examples show `Bytes` values like this: `<12* 05* 68 65 6C 6C 6F>`.
+> The `*` means the byte is added for the ProtoBuf logic. It does not contain any real value.
+> Here `12` means a _length delimited_ encoded value for field number `2`. `05` is the length in bytes. The five bytes that follow are decoded as `hello`.
+> Read [this](https://developers.google.com/protocol-buffers/docs/encoding) if you want to learn more about how ProtoBuf messages are encoded.
+
+
+# Encoding
+
+@docs encode, Encoder, message
+
+
+# Integers
+
+@docs int32, uint32, sint32, fixed32, sfixed32
+
+
+# Floats
+
+@docs double, float
+
+
+# Strings
+
+@docs string
+
+
+# Booleans
+
+@docs bool
+
+
+# Bytes
+
+@docs bytes
+
+
+# None
+
+@docs none
+
+
+# Data Structures
+
+@docs list, dict
+
+-}
 
 import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Encode
+import Dict exposing (Dict)
 import Internal.ProtoBuf exposing (WireType(..))
 
 
+
+-- ENCODER
+
+
+{-| Describes how to generate a sequence of bytes according to the specification of ProtoBuf.
+-}
 type Encoder
-    = Encoder Encode.Encoder
+    = Encoder WireType ( Int, Encode.Encoder )
+    | ListEncoder (List Encoder)
+    | NoEncoder
 
 
-type
-    FieldEncoder
-    -- TODO merge these two (if possible)
-    = FieldEncoder WireType Encode.Encoder
-    | RepeatedEncoder WireType (List Encode.Encoder)
+
+-- ENCODE
 
 
+{-| Turn an `Encoder` into `Bytes`.
+
+     encode (int32 127)    -- <7F>
+     encode (sint32 127)   -- <FE 01>
+     encode (sfixed32 127) -- <7F 00 00 00>
+
+Values are encoded together with a field number and the [_wire type_](https://developers.google.com/protocol-buffers/docs/encoding#structure) conform the specification in a `.proto` file.
+This allows decoders to know what field it is decoding and to read the right number of `Bytes`.
+
+    import ProtoBuf.Encode as Encode
+
+    type alias Person =
+        { age : Int
+        , name : String
+        }
+
+    encodePerson : Person -> Encode.Encoder
+    encodePerson person =
+        Encode.message
+            [ ( 1, Encode.uint32 person.age )
+            , ( 2, Encode.string person.name )
+            ]
+
+    Encode.encode (encodePerson (Person 33 "Tom")) -- <08* 21 12* 03* 54 6F 6D>
+
+You probably want to send these `Bytes` in the body of an HTTP request:
+
+    import Http
+    import ProtoBuf.Encode as Encode
+
+    postPerson : (Result Http.Error () -> msg) -> Person -> Cmd msg
+    postPerson toMsg person =
+        Http.post
+            { url = "https://example.com/person"
+            , body =
+                Http.bytesBody "application/octet-stream" <|
+                    Encode.encode (encodePerson person)
+            , expect = Http.expectWhatever
+            }
+
+-}
 encode : Encoder -> Bytes
-encode (Encoder encoder) =
-    Encode.encode encoder
+encode encoder =
+    case encoder of
+        Encoder _ ( _, encoder_ ) ->
+            Encode.encode encoder_
+
+        ListEncoder encoders ->
+            List.map (Encode.bytes << encode) encoders
+                |> Encode.sequence
+                |> Encode.encode
+
+        NoEncoder ->
+            Encode.encode <| Encode.sequence []
 
 
-message : List ( Int, FieldEncoder ) -> Encoder
+{-| Encode a record into a message.
+For this you need to provide a list of **unique** field numbers (between `1` and `536870911`) and their corresponding `Encoder`s.
+
+     type alias Foo =
+         { a : Float
+         , b : String
+         , c : List Int
+         }
+
+     foo : Foo
+     foo =
+        Foo 1.25 "hello" [ 1, 2, 3, 4, 5 ]
+
+     encode : Encoder
+     encode =
+         message
+             [ ( 1, double foo.a )         -- <09* 00 00 00 00 00 00 F4 3F
+             , ( 2, string foo.b )         --  12* 05* 68 65 6C 6C 6F
+             , ( 3, repeated int32 foo.c ) --  1A* 05* 01 02 03 04 05>
+             ]
+
+-}
+message : List ( Int, Encoder ) -> Encoder
 message items =
     uniqueByFieldNumber items
         |> List.sortBy Tuple.first
-        |> List.map
-            (\( fieldNumber, encoder ) ->
-                case encoder of
-                    FieldEncoder wireType encoder_ ->
-                        let
-                            bs =
-                                Encode.encode encoder_
-
-                            length =
-                                case wireType of
-                                    LengthDelimited ->
-                                        varIntEncode (Bytes.width bs)
-
-                                    _ ->
-                                        Encode.sequence []
-                        in
-                        Encode.sequence
-                            [ tagEncoder fieldNumber wireType
-                            , length
-                            , Encode.bytes bs
-                            ]
-
-                    RepeatedEncoder wireType encoders ->
-                        -- TODO mix w/ previous OR (probably) move to #repeated
-                        if wireType == LengthDelimited then
-                            Encode.sequence <|
-                                List.concatMap
-                                    (\encoder_ ->
-                                        let
-                                            bs =
-                                                Encode.encode encoder_
-                                        in
-                                        [ tagEncoder fieldNumber wireType
-                                        , varIntEncode (Bytes.width bs)
-                                        , Encode.bytes bs
-                                        ]
-                                    )
-                                    encoders
-
-                        else
-                            let
-                                bs =
-                                    Encode.encode <| Encode.sequence encoders
-                            in
-                            Encode.sequence
-                                [ tagEncoder fieldNumber LengthDelimited
-                                , varIntEncode (Bytes.width bs)
-                                , Encode.bytes bs
-                                ]
-            )
-        |> Encode.sequence
-        |> Encoder
+        |> List.map encodeKeyValuePair
+        |> sequence
+        |> Encoder LengthDelimited
 
 
-repeated : (a -> FieldEncoder) -> List a -> FieldEncoder
-repeated encode_ values =
-    let
-        encoders =
-            List.map encode_ values
-                |> List.filterMap
-                    (\encoder ->
-                        case encoder of
-                            FieldEncoder wireType encoder_ ->
-                                Just ( wireType, encoder_ )
 
-                            RepeatedEncoder _ _ ->
-                                Nothing
-                    )
-
-        encoders_ =
-            List.map Tuple.second encoders
-    in
-    case encoders of
-        ( wireType, _ ) :: _ ->
-            RepeatedEncoder wireType encoders_
-
-        _ ->
-            RepeatedEncoder LengthDelimited []
+-- INTEGER
 
 
-embedded : (a -> Encoder) -> Maybe a -> FieldEncoder
-embedded encoder value =
-    case Maybe.map encoder value of
-        Just (Encoder encoder_) ->
-            FieldEncoder LengthDelimited encoder_
+{-| Encode integers from `-2147483648` to `2147483647` into a message.
+Uses variable-length encoding. Inefficient for encoding negative numbers – if your field is likely to have negative values, use [`sint32`](#sint32) instead.
 
-        Nothing ->
-            RepeatedEncoder LengthDelimited []
+     encode (int32 0)    -- <00>
+     encode (int32 100)  -- <64>
+     encode (int32 -100) -- <FF FF FF FF FF FF FF 9C>
+
+This function should also be used to encode custom types as enumeration:
+
+    type Fruit
+        = Apple
+        | Banana
+        | Mango
+        | Unrecognized Int
+
+    encodeFruit : Fruit -> Encoder
+    encodeFruit value =
+        Encode.int32 <|
+            case value of
+                Apple ->
+                    0
+
+                Banana ->
+                    1
+
+                Mango ->
+                    2
+
+                Unrecognized v ->
+                    v
+
+Note that for `proto2` the `Unrecognized Int` field can be left out.
+
+-}
+int32 : Int -> Encoder
+int32 =
+    Encoder VarInt << varInt
 
 
-double : Float -> FieldEncoder
-double value =
-    FieldEncoder Bit64 (Encode.float64 LE value)
+{-| Encode integers from `0` to `4294967295` into a message.
+Uses variable-length encoding.
 
+     encode (uint32 0)   -- <00>
+     encode (uint32 100) -- <64>
 
-float : Float -> FieldEncoder
-float value =
-    FieldEncoder Bit32 (Encode.float32 LE value)
-
-
-int32 : Int -> FieldEncoder
-int32 value =
-    FieldEncoder VarInt (varIntEncode value)
-
-
-uint32 : Int -> FieldEncoder
+-}
+uint32 : Int -> Encoder
 uint32 =
-    FieldEncoder VarInt << varIntEncode << unsignedEncode
+    Encoder VarInt << varInt << unsigned
 
 
-sint32 : Int -> FieldEncoder
+{-| Encode integers from `-2147483648` to `2147483647` into a message.
+Uses variable-length encoding. These encoder encodes negative numbers more efficiently than [`int32`](#int32).
+
+     encode (sint32 0)    -- <00>
+     encode (sint32 100)  -- <C8 01>
+     encode (sint32 -100) -- <C7 01>
+
+-}
+sint32 : Int -> Encoder
 sint32 =
-    FieldEncoder VarInt << varIntEncode << zigZagEncode
+    Encoder VarInt << varInt << zigZag
 
 
-fixed32 : Int -> FieldEncoder
-fixed32 value =
-    FieldEncoder Bit32 (Encode.unsignedInt32 LE value)
+{-| Encode integers from `0` to `4294967295` into a message.
+Always four bytes. More efficient than [`uint32`](#uint32) if values are often greater than `268435456`.
+
+     encode (fixed32 0)   -- <00 00 00 00>
+     encode (fixed32 100) -- <64 00 00 00>
+
+-}
+fixed32 : Int -> Encoder
+fixed32 v =
+    Encoder Bit32 ( 4, Encode.unsignedInt32 LE v )
 
 
-sfixed32 : Int -> FieldEncoder
-sfixed32 value =
-    FieldEncoder Bit32 (Encode.signedInt32 LE value)
+{-| Encode integers from `-2147483648` to `2147483647` into a message.
+Always four bytes.
+
+     encode (sfixed32 0)    -- <00 00 00 00>
+     encode (sfixed32 100)  -- <64 00 00 00>
+     encode (sfixed32 -100) -- <9C FF FF FF>
+
+-}
+sfixed32 : Int -> Encoder
+sfixed32 v =
+    Encoder Bit32 ( 4, Encode.signedInt32 LE v )
 
 
-bool : Bool -> FieldEncoder
-bool value =
+
+-- FLOAT
+
+
+{-| Encode 64-bit floating point numbers into a message.
+
+     encode (double 0)    -- <00 00 00 00 00 00 00 00>
+     encode (double 100)  -- <00 00 00 00 00 00 59 40>
+     encode (double -100) -- <00 00 00 00 00 00 59 C0>
+
+-}
+double : Float -> Encoder
+double v =
+    Encoder Bit64 ( 8, Encode.float64 LE v )
+
+
+{-| Encode 32-bit floating point numbers into a message.
+The value may lose some precision by encoding it as a float.
+
+     encode (float 0)    -- <00 00 00 00>
+     encode (float 100)  -- <00 00 C8 42>
+     encode (float -100) -- <00 00 C8 C2>
+
+-}
+float : Float -> Encoder
+float v =
+    Encoder Bit32 ( 4, Encode.float32 LE v )
+
+
+
+-- STRING
+
+
+{-| Encode strings into a message.
+
+     encode (string "$20")   -- <24 32 30>
+     encode (string "£20")   -- <C2 A3 32 30>
+     encode (string "€20")   -- <E2 82 AC 32 30>
+     encode (string "bread") -- <62 72 65 61 64>
+     encode (string "brød")  -- <62 72 C3 B8 64>
+
+-}
+string : String -> Encoder
+string v =
+    Encoder LengthDelimited ( Encode.getStringWidth v, Encode.string v )
+
+
+
+-- BOOLEAN
+
+
+{-| Encode booleans into a message.
+
+     encode (bool False) -- <00>
+     encode (bool True)  -- <01>
+
+-}
+bool : Bool -> Encoder
+bool v =
+    Encoder VarInt <|
+        if v then
+            varInt 1
+
+        else
+            varInt 0
+
+
+
+-- BYTES
+
+
+{-| Copy raw `Bytes` into a message.
+
+    -- bs == <0A 0B 0C>
+    encode (bytes bs) -- <0A 0B 0C>
+
+-}
+bytes : Bytes -> Encoder
+bytes v =
+    Encoder LengthDelimited ( Bytes.width v, Encode.bytes v )
+
+
+
+-- DATA STRUCTURES
+
+
+{-| Encode a list of values into a message.
+ProtoBuf support two kind of encodings:
+
+     -- packed encoding
+     encode
+         (message
+             [ ( 1, list int32 [ 1, 2, 3 ] ) -- <0A* 03* 01 02 03>
+             ]
+         )
+
+     -- non-packed encoding
+     encode
+         (message
+             [ ( 1
+               , list string
+                     [ "one"   -- <0A* 03* 6F 6E 65
+                     , "two"   --  0A* 03* 74 77 6F
+                     , "three" --  0A* 05* 74 68 72 65 65>
+                     ]
+               )
+             ]
+         )
+
+Packed encoding is the default as it uses less bytes on the wire.
+This package will automatically fall-back to non-packed encoding for non-scalar numeric types.
+
+-}
+list : (a -> Encoder) -> List a -> Encoder
+list fn =
+    ListEncoder << List.map fn
+
+
+{-| Encode a dictionary of key-value pairs.
+This requires providing one encoder for the keys and one for the values.
+
     let
-        num =
-            if value then
-                1
+        value =
+            Dict.fromList
+                [ ( 1, "foo" ) -- <0A* 07* 08* 01 12* 03* 66 6F 6F
+                , ( 2, "bar" ) --  0A* 07* 08* 02 12* 03* 62 61 72>
+                ]
+    in
+    message [ ( 1, dict int32 string value ) ]
+
+-}
+dict : (k -> Encoder) -> (v -> Encoder) -> Dict k v -> Encoder
+dict encodeKey encodeValue dict_ =
+    Dict.toList dict_
+        |> List.map
+            (\( key, value ) ->
+                message
+                    [ ( 1, encodeKey key )
+                    , ( 2, encodeValue value )
+                    ]
+            )
+        |> ListEncoder
+
+
+{-| Encode nothing. Note that you can easily combine this encoder with _any_ field number to provide to [`message`](#message) as literally **nothing** will be encoded.
+
+This can be useful when encoding embedded messages:
+
+    type alias Report =
+        { title : String
+        , contents : String
+        , attachment : Maybe Attachment
+        }
+
+    encodeReport : Report -> Encoder
+    encodeReport report =
+        message
+            [ ( 1, string report.title )
+            , ( 2, string report.contents )
+            , ( 3, Maybe.withDefault none <| Maybe.map encodeAttachment report.attachment )
+            ]
+
+Or when encoding custom types:
+
+    type alias KeyValue =
+        { key : String
+        , value : Value
+        }
+
+    type Value
+        = StringValue String
+        | IntValue Int
+        | NoValue
+
+    encodeValue : Value -> ( Int, Encoder )
+    encodeValue value =
+        case value of
+            StringValue value ->
+                ( 2, string value )
+
+            IntValue value ->
+                ( 3, int32 value )
+
+            NoValue ->
+                ( 0, none )
+
+    encodeKeyValue : KeyValue -> Encoder
+    encodeKeyValue keyValue =
+        message
+            [ ( 1, string keyValue.key )
+            , encodeValue keyValue.value
+            ]
+
+-}
+none : Encoder
+none =
+    NoEncoder
+
+
+
+-- BYTES ENCODER
+
+
+sequence : List ( Int, Encode.Encoder ) -> ( Int, Encode.Encoder )
+sequence items =
+    let
+        width =
+            List.sum <| List.map Tuple.first items
+    in
+    ( width, Encode.sequence <| List.map Tuple.second items )
+
+
+encodeKeyValuePair : ( Int, Encoder ) -> ( Int, Encode.Encoder )
+encodeKeyValuePair ( fieldNumber, encoder ) =
+    case encoder of
+        Encoder LengthDelimited encoder_ ->
+            sequence
+                [ tag fieldNumber LengthDelimited
+                , varInt (Tuple.first encoder_)
+                , encoder_
+                ]
+
+        Encoder wireType encoder_ ->
+            sequence
+                [ tag fieldNumber wireType
+                , encoder_
+                ]
+
+        ListEncoder encoders ->
+            case packedEncoders encoders of
+                Just encoder_ ->
+                    sequence
+                        [ tag fieldNumber LengthDelimited
+                        , varInt (Tuple.first encoder_)
+                        , encoder_
+                        ]
+
+                Nothing ->
+                    sequence <| List.map (encodeKeyValuePair << Tuple.pair fieldNumber) encoders
+
+        NoEncoder ->
+            sequence []
+
+
+packedEncoders : List Encoder -> Maybe ( Int, Encode.Encoder )
+packedEncoders encoders =
+    case encoders of
+        (Encoder wireType encoder) :: others ->
+            if wireType == LengthDelimited then
+                Nothing
 
             else
-                0
-    in
-    FieldEncoder VarInt (varIntEncode num)
+                Just <| sequence (encoder :: List.filterMap unwrap others)
+
+        _ ->
+            Nothing
 
 
-string : String -> FieldEncoder
-string =
-    FieldEncoder LengthDelimited << Encode.string
+unwrap : Encoder -> Maybe ( Int, Encode.Encoder )
+unwrap encoder =
+    case encoder of
+        Encoder _ encoder_ ->
+            Just encoder_
+
+        _ ->
+            Nothing
 
 
-bytes : Bytes -> FieldEncoder
-bytes =
-    FieldEncoder LengthDelimited << Encode.bytes
-
-
-
---enum ...
---oneof ...
---map ...
--- HELPERS
-
-
-tagEncoder : Int -> WireType -> Encode.Encoder
-tagEncoder fieldNumber wireType =
+tag : Int -> WireType -> ( Int, Encode.Encoder )
+tag fieldNumber wireType =
     let
         base4 =
             case wireType of
@@ -222,12 +553,34 @@ tagEncoder fieldNumber wireType =
                     5
     in
     Bitwise.or (Bitwise.shiftLeftBy 3 fieldNumber) base4
-        |> varIntEncode
+        |> varInt
 
 
-varIntEncode : Int -> Encode.Encoder
-varIntEncode value =
-    Encode.sequence (varIntEncoders value)
+
+-- VARINT
+
+
+varInt : Int -> ( Int, Encode.Encoder )
+varInt value =
+    let
+        encoders =
+            varIntEncoders value
+    in
+    ( List.length encoders, Encode.sequence encoders )
+
+
+unsigned : Int -> Int
+unsigned value =
+    if value >= 2 ^ 31 then
+        value - 2 ^ 32
+
+    else
+        value
+
+
+zigZag : Int -> Int
+zigZag value =
+    Bitwise.xor (Bitwise.shiftRightBy 31 value) (Bitwise.shiftLeftBy 1 value)
 
 
 varIntEncoders : Int -> List Encode.Encoder
@@ -246,21 +599,11 @@ varIntEncoders value =
         [ Encode.unsignedInt8 base128 ]
 
 
-unsignedEncode : Int -> Int
-unsignedEncode value =
-    if value >= 2 ^ 31 then
-        value - 2 ^ 32
 
-    else
-        value
+-- UNIQUE FIELDS
 
 
-zigZagEncode : Int -> Int
-zigZagEncode value =
-    Bitwise.xor (Bitwise.shiftRightBy 31 value) (Bitwise.shiftLeftBy 1 value)
-
-
-uniqueByFieldNumber : List ( Int, FieldEncoder ) -> List ( Int, FieldEncoder )
+uniqueByFieldNumber : List ( Int, Encoder ) -> List ( Int, Encoder )
 uniqueByFieldNumber items =
     case items of
         x :: xs ->
