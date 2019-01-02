@@ -17,19 +17,19 @@ suite =
                 \_ ->
                     Encode.message [ ( 1, Encode.string "required" ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.required 1 Decode.string)
+                        |> Decode.decode (Decode.message "" [ Decode.required 1 Decode.string updateSelf ])
                         |> Expect.equal (Just "required")
             , test "being missing" <|
                 \_ ->
                     Encode.message []
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.required 1 Decode.string)
+                        |> Decode.decode (Decode.message "" [ Decode.required 1 Decode.string updateSelf ])
                         |> Expect.equal Nothing
             , test "being invalid" <|
                 \_ ->
                     Encode.message [ ( 1, Encode.int32 0 ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.required 1 Decode.string)
+                        |> Decode.decode (Decode.message "" [ Decode.required 1 Decode.string updateSelf ])
                         |> Expect.equal Nothing
             ]
         , describe "optional fields"
@@ -37,19 +37,19 @@ suite =
                 \_ ->
                     Encode.message [ ( 1, Encode.string "optional" ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.optional 1 Decode.string "default")
+                        |> Decode.decode (Decode.message "default" [ Decode.optional 1 Decode.string updateSelf ])
                         |> Expect.equal (Just "optional")
             , test "being missing" <|
                 \_ ->
                     Encode.message []
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.optional 1 Decode.string "default")
+                        |> Decode.decode (Decode.message "default" [ Decode.optional 1 Decode.string updateSelf ])
                         |> Expect.equal (Just "default")
             , test "being invalid" <|
                 \_ ->
                     Encode.message [ ( 1, Encode.int32 0 ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.optional 1 Decode.string "default")
+                        |> Decode.decode (Decode.message "default" [ Decode.optional 1 Decode.string updateSelf ])
                         |> Expect.equal Nothing
             ]
         , describe "repeated fields"
@@ -57,21 +57,26 @@ suite =
                 \_ ->
                     Encode.message [ ( 1, Encode.list Encode.string [ "repeated", "repeated" ] ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.repeated 1 Decode.string)
+                        |> Decode.decode (Decode.message [] [ Decode.repeated 1 Decode.string identity updateSelf ])
                         |> Expect.equal (Just [ "repeated", "repeated" ])
             , test "being missing" <|
                 \_ ->
                     Encode.message []
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.repeated 1 Decode.string)
+                        |> Decode.decode (Decode.message [] [ Decode.repeated 1 Decode.string identity updateSelf ])
                         |> Expect.equal (Just [])
             , test "being incorrect" <|
                 \_ ->
                     Encode.message [ ( 1, Encode.list Encode.int32 [ 0, 0 ] ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.repeated 1 Decode.string)
+                        |> Decode.decode (Decode.message [] [ Decode.repeated 1 Decode.string identity updateSelf ])
                         |> Expect.equal (Just [ "\u{0000}\u{0000}" ])
             ]
 
         -- TODO oneOf (incl. multiple fields), map, dict, merge
         ]
+
+
+updateSelf : a -> a -> a
+updateSelf value _ =
+    value

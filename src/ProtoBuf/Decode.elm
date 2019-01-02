@@ -1,5 +1,5 @@
 module ProtoBuf.Decode exposing
-    ( Decoder, decode, message
+    ( Decoder, decode, FieldDecoder, message
     , required, optional, repeated, mapped, oneOf
     , int32, uint32, sint32, fixed32, sfixed32
     , double, float
@@ -14,7 +14,7 @@ module ProtoBuf.Decode exposing
 
 # Decoding
 
-@docs Decoder, decode, message
+@docs Decoder, decode, FieldDecoder, message
 
 
 # Field Decoders
@@ -59,7 +59,7 @@ import Bytes.Decode as Decode
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
 import Internal.ProtoBuf exposing (WireType(..))
-import Internal.ProtoBuf.Decode exposing (..)
+import Set
 
 
 
@@ -69,8 +69,14 @@ import Internal.ProtoBuf.Decode exposing (..)
 {-| Describes how to turn a sequence of ProtoBuf-encoded bytes into a nice Elm value.
 -}
 type Decoder a
-    = MessageDecoder (Int -> Decode.Decoder ( Message, a ))
-    | Decoder WireType (Int -> Decode.Decoder ( Int, a ))
+    = Decoder WireType (Int -> Decode.Decoder ( Int, a ))
+
+
+{-| Describes how to decode a certain field in a ProtoBuf-encoded message and
+how to update a record with the new Elm value.
+-}
+type FieldDecoder a
+    = FieldDecoder Bool (List ( Int, Decoder (a -> a) ))
 
 
 
@@ -83,19 +89,23 @@ type Decoder a
      decode sint32 <7F>   -- Just -64
      decode sfixed32 <7F> -- Nothing
 
-The `Decoder` specifies exactly how this should happen.
-This process may fail if:
+The `Decoder` specifies exactly how this should happen. This process may fail
+if:
 
   - a required field is not present;
-  - there is a mismatch of the [_wire type_](https://developers.google.com/protocol-buffers/docs/encoding#structure) of the encoded value and the decoder;
+  - there is a mismatch of the
+    [_wire type_](https://developers.google.com/protocol-buffers/docs/encoding#structure)
+    of the encoded value and the decoder;
   - the sequence of bytes is corrupted or unexpected somehow.
 
-The examples above show a case where there are not enough bytes.
-They also show the same bytes sequence can lead to different values depending on the `Decoder` that is being used.
-Decoders cannot always detect these kind of mismatches.
+The examples above show a case where there are not enough bytes. They also show
+the same bytes sequence can lead to different values depending on the `Decoder`
+that is being used. Decoders cannot always detect these kind of mismatches.
 
-Values are always encoded together with a field number and the [_wire type_](https://developers.google.com/protocol-buffers/docs/encoding#structure).
-This allows the decoder to connect the right fields and to read the right number of bytes.
+Values are always encoded together with a field number and their
+[_wire type_](https://developers.google.com/protocol-buffers/docs/encoding#structure)
+. This allows the decoder to set the right fields and to process the correct
+number of bytes.
 
     import ProtoBuf.Decode as Decode
 
@@ -106,19 +116,30 @@ This allows the decoder to connect the right fields and to read the right number
 
     personDecoder : Decode.Decoder Person
     personDecoder =
-        Decode.message Person
-            |> Decode.optional 1 Decode.int32 0
-            |> Decode.optional 2 Decode.string ""
+        Decode.message (Person 0 "")
+            |> Decode.optional 1 Decode.int32 setAge
+            |> Decode.optional 2 Decode.string setName
 
-You probably received these `Bytes` from an HTTP request.
-As [`message`](#message) consumes **all remaing bytes** on the wire, you cannot use `Http.expectBytes` directly so you might want to use the `expectBytes` as provided here.
+    -- SETTERS
+    setAge : a -> { b | age : a } -> { b | age : a }
+    setAge value model =
+        { model | age = value }
+
+    setName : a -> { b | name : a } -> { b | name : a }
+    setName value model =
+        { model | name = value }
+
+You probably received these `Bytes` from an HTTP request. As
+[`message`](#message) consumes **all remaing bytes** on the wire, you cannot
+use `Http.expectBytes` directly (as it does not provide the width of the bytes
+sequence). Hence, you might want to use the `expectBytes` as provided here.
 
     import Http
     import ProtoBuf.Decode as Decode
 
     expectBytes : (Result Http.Error a -> msg) -> Decode.Decoder a -> Http.Expect msg
     expectBytes toMsg decoder =
-        expectBytesResponse toMsg
+        Http.expectBytesResponse toMsg
             (\response ->
                 case response of
                     Http.BadUrl_ url ->
@@ -151,50 +172,67 @@ As [`message`](#message) consumes **all remaing bytes** on the wire, you cannot 
 
 -}
 decode : Decoder a -> Bytes -> Maybe a
-decode decoder bs =
-    case decoder of
-        MessageDecoder decoder_ ->
-            Decode.decode (Decode.map Tuple.second <| decoder_ (Bytes.width bs)) bs
-
-        Decoder _ decoder_ ->
-            Decode.decode (Decode.map Tuple.second <| decoder_ (Bytes.width bs)) bs
+decode (Decoder _ decoder) bs =
+    Decode.decode (Decode.map Tuple.second <| decoder (Bytes.width bs)) bs
 
 
-decodeAll : Decoder a -> List Bytes -> Maybe (List a)
-decodeAll decoder chunks =
-    case decoder of
-        Decoder _ decoder_ ->
-            decodeList decoder_ chunks
+{-| Decode **all remaining bytes** into an record. The initial value given here
+holds all default values. For `proto3` these cannot be overridden. Each
+provided field decoder calls a setter function to update the record when its
+field number is encountered on the bytes sequence. _Unknown fields_ that have
+no matching field decoder are currently being ignored.
 
-        decoder_ ->
-            let
-                values =
-                    List.map (decode decoder_) chunks
-                        |> List.filterMap identity
-            in
-            if List.length values == List.length chunks then
-                Just values
+    import ProtoBuf.Decode as Decode
 
-            else
-                Nothing
+    type alias Person =
+        { name : String
+        }
 
+    personDecoder : Decode.Decoder Person
+    personDecoder =
+        -- Person "John"
+        Decode.message (Person "John") []
 
-{-| Decode **all remaining bytes** into an record.
-Chunks of bytes that are not needed to create the record are thrown away.
 -}
-message : a -> Decoder a
-message v =
-    Decoder LengthDelimited (\width -> Decode.succeed ( width, v ))
+message : a -> List (FieldDecoder a) -> Decoder a
+message v fieldDecoders =
+    let
+        ( requiredSet, dict ) =
+            fieldDecoders
+                |> List.foldr
+                    (\(FieldDecoder isRequired items) ( numbers, decoders ) ->
+                        let
+                            numbers_ =
+                                if isRequired then
+                                    numbers ++ List.map Tuple.first items
+
+                                else
+                                    numbers
+                        in
+                        ( numbers_, items ++ decoders )
+                    )
+                    ( [], [] )
+                |> Tuple.mapFirst Set.fromList
+                |> Tuple.mapSecond Dict.fromList
+    in
+    Decoder LengthDelimited
+        (\width ->
+            Decode.loop
+                { width = width
+                , requiredFieldNumbers = requiredSet
+                , dict = dict
+                , model = v
+                }
+                (stepMessage width)
+        )
 
 
 
 -- FIELD DECODERS
 
 
-{-| Decode a required field.
-This decoder will fail if the field is not present in the bytes sequence.
-
-    import ProtoBuf.Decode as Decode
+{-| Decode a required field. Decoding a message fails when one of its required
+fields is not present in the bytes sequence.
 
     type alias Person =
         { age : Int -- field number 1
@@ -203,32 +241,30 @@ This decoder will fail if the field is not present in the bytes sequence.
 
     personDecoder : Decode.Decoder Person
     personDecoder =
-        Decode.message Person
-            |> Decode.required 1 int32
-            |> Decode.required 3 string
+        -- <08 21 1A 04 4A 6F 68 6E> == Just (Person 33 "John")
+        -- <08 21>                   == Nothing
+        -- <>                        == Nothing
+        Decode.message (Person 0 "")
+            [ Decode.required 1 int32 setAge
+            , Decode.required 3 string setName
+            ]
+
+    -- SETTERS
+    setAge : a -> { b | age : a } -> { b | age : a }
+    setAge value model =
+        { model | age = value }
+
+    setName : a -> { b | name : a } -> { b | name : a }
+    setName value model =
+        { model | name = value }
 
 -}
-required : Int -> Decoder a -> Decoder (a -> b) -> Decoder b
-required fieldNumber fieldDecoder decoder =
-    field (decodeRequired fieldNumber fieldDecoder) decoder
-
-
-decodeRequired : Int -> Decoder a -> Message -> Maybe a
-decodeRequired fieldNumber decoder data =
-    case lastChunk fieldNumber (wireType decoder) data of
-        FieldData bs ->
-            decode decoder bs
-
-        NotPresent ->
-            Nothing
-
-        Invalid ->
-            Nothing
+required : Int -> Decoder a -> (a -> b -> b) -> FieldDecoder b
+required fieldNumber decoder set =
+    FieldDecoder True [ ( fieldNumber, map set decoder ) ]
 
 
 {-| Decode an optional field.
-The decoder will fall back to the provided default value when the field is not present.
-For `proto3` the default values can no longer be customized.
 
     import ProtoBuf.Decode as Decode
 
@@ -239,31 +275,35 @@ For `proto3` the default values can no longer be customized.
 
     personDecoder : Decode.Decoder Person
     personDecoder =
-        Decode.message Person
-            |> Decode.optional 2 int32 0
-            |> Decode.optional 4 string ""
+        -- <08 21 1A 04 4A 6F 68 6E> == Just (Person 33 "John")
+        -- <08 21>                   == Just (Person 33 "")
+        -- <>                        == Just (Person 0 "")
+        Decode.message (Person 0 "")
+            [ Decode.optional 2 int32 setAge
+            , Decode.optional 4 string setName
+            ]
+
+    -- SETTERS
+    setAge : a -> { b | age : a } -> { b | age : a }
+    setAge value model =
+        { model | age = value }
+
+    setName : a -> { b | name : a } -> { b | name : a }
+    setName value model =
+        { model | name = value }
 
 -}
-optional : Int -> Decoder a -> a -> Decoder (a -> b) -> Decoder b
-optional fieldNumber fieldDecoder default decoder =
-    field (decodeOptional fieldNumber fieldDecoder default) decoder
+optional : Int -> Decoder a -> (a -> b -> b) -> FieldDecoder b
+optional fieldNumber decoder set =
+    FieldDecoder False [ ( fieldNumber, map set decoder ) ]
 
 
-decodeOptional : Int -> Decoder a -> a -> Message -> Maybe a
-decodeOptional fieldNumber decoder default data =
-    case lastChunk fieldNumber (wireType decoder) data of
-        FieldData bs ->
-            decode decoder bs
+{-| Decode a repeated field. If no such fields are present when decoding a
+message, the result will be an empty list.
 
-        NotPresent ->
-            Just default
-
-        Invalid ->
-            Nothing
-
-
-{-| Decode a repeated field.
-If no such fields are present, the decoder returns an empty list.
+As repeated fields may occur multiple times in a bytes sequence, `repeated`
+also needs to get hold of the record's current value in order to append the new
+value.
 
     import ProtoBuf.Decode as Decode
 
@@ -273,34 +313,46 @@ If no such fields are present, the decoder returns an empty list.
 
     personDecoder : Decode.Decoder Person
     personDecoder =
-        Decode.message Person
-            |> Decode.repeated 5 string
+        -- <2A 04 4A 6F 68 6E 2A 07 4D 61 72 77 6F 6F 64> == Just (Person [ "John", "Marwood" ])
+        -- <2A 04 4A 6F 68 6E>                            == Just (Person [ "John" ])
+        -- <>                                             == Just (Person [])
+        Decode.message (Person [])
+            [ Decode.repeated 5 string .names setNames
+            ]
+
+    -- SETTERS
+    setNames : a -> { b | names : a } -> { b | names : a }
+    setNames value model =
+        { model | names = value }
 
 -}
-repeated : Int -> Decoder a -> Decoder (List a -> b) -> Decoder b
-repeated fieldNumber fieldDecoder decoder =
-    field (decodeRepeated fieldNumber fieldDecoder) decoder
+repeated : Int -> Decoder a -> (b -> List a) -> (List a -> b -> b) -> FieldDecoder b
+repeated fieldNumber decoder get set =
+    let
+        listDecoder =
+            case decoder of
+                Decoder LengthDelimited _ ->
+                    map List.singleton decoder
+
+                Decoder _ decoder_ ->
+                    Decoder LengthDelimited (\width -> Decode.loop ( width, [] ) (stepPackedField width decoder_))
+
+        update value model =
+            set (get model ++ value) model
+    in
+    FieldDecoder False [ ( fieldNumber, map update listDecoder ) ]
 
 
-decodeRepeated : Int -> Decoder a -> Message -> Maybe (List a)
-decodeRepeated fieldNumber decoder data =
-    case allChunks fieldNumber LengthDelimited data of
-        FieldData chunks ->
-            decodeAll decoder chunks
+{-| Decode a map field. If no such fields are present when decoding a message,
+the result will be an empty `Dict`. Note that you need to provide one decoder
+for the keys and another one for the values. Keys without a value or value
+without a key stick to the provided defaults.
 
-        NotPresent ->
-            Just []
+As map fields may occur multiple times in a bytes sequence, `mapped`
+also needs to get hold of the record's current value in order to append the new
+value.
 
-        Invalid ->
-            Nothing
-
-
-{-| Decode a map.
-If no such fields are present, the decoder returns an empty `Dict`.
-Note that you need the provide two decoders here.
-One for the keys and another for the values.
-Keys without a value of values without a key fall back to the provided defaults.
-
+    import Dict exposing (Dict)
     import ProtoBuf.Decode as Decode
 
     type alias Administration =
@@ -309,107 +361,77 @@ Keys without a value of values without a key fall back to the provided defaults.
 
     administrationDecoder : Decode.Decoder Administration
     administrationDecoder =
-        Decode.message Administration
-            |> Decode.mapped 6 int32 0 string ""
+        -- <32 08 08 01 12 04 4A 6F 68 6E 32 08 08 02 12 04 4B 61 74 65> == Just (Administration (Dict.fromList [( 1, "John" ), ( 2, "Kate" )])
+        -- <32 08 08 01 12 04 4A 6F 68 6E>                               == Just (Administration (Dict.fromList [( 1, "John" )])
+        -- <32 08 08 01>                                                 == Just (Administration (Dict.fromList [( 1, "" )])
+        -- <>                                                            == Just (Administration Dict.empty)
+        Decode.message (Administration Dict.empty)
+            [ Decode.mapped 6 ( 0, "" ) int32 string .persons setPersons
+            ]
+
+    -- SETTERS
+    setPersons : a -> { b | persons : a } -> { b | persons : a }
+    setPersons value model =
+        { model | persons = value }
 
 -}
-mapped : Int -> Decoder comparable -> comparable -> Decoder a -> a -> Decoder (Dict comparable a -> b) -> Decoder b
-mapped fieldNumber keyDecoder defaultKey valueDecoder defaultValue decoder =
-    field (decodeMapped fieldNumber keyDecoder defaultKey valueDecoder defaultValue) decoder
-
-
-decodeMapped : Int -> Decoder comparable -> comparable -> Decoder v -> v -> Message -> Maybe (Dict comparable v)
-decodeMapped fieldNumber keyDecoder defaultKey valueDecoder defaultValue data =
+mapped : Int -> ( comparable, a ) -> Decoder comparable -> Decoder a -> (b -> Dict comparable a) -> (Dict comparable a -> b -> b) -> FieldDecoder b
+mapped fieldNumber defaultTuple keyDecoder valueDecoder get set =
     let
         decoder =
-            message Tuple.pair
-                |> optional 1 keyDecoder defaultKey
-                |> optional 2 valueDecoder defaultValue
+            message defaultTuple
+                [ optional 1 keyDecoder (\key ( _, value ) -> ( key, value ))
+                , optional 2 valueDecoder (\value ( key, _ ) -> ( key, value ))
+                ]
     in
-    case allChunks fieldNumber (wireType decoder) data of
-        FieldData chunks ->
-            decodeAll decoder chunks
-                |> Maybe.map Dict.fromList
-
-        NotPresent ->
-            Just Dict.empty
-
-        Invalid ->
-            Nothing
+    repeated fieldNumber decoder (Dict.toList << get) (set << Dict.fromList)
 
 
-{-| Decode one of some fields.
-The decoder will fall back to the provided default value when none of the fields is present.
-As the decoder is capable of deserializing different types of data its return type must be a custom type.
+{-| Decode one of some fields. As the decoder is capable of deserializing
+different types of data its return type must be a custom type.
 
     import ProtoBuf.Decode as Decode
+
+    type alias FormValue =
+        { key : String -- field number 7
+        , value : Value -- field number 8 or 9
+        }
 
     type Value
         = StringValue String
         | IntValue Int
         | NoValue
 
-    valueDecoders : List ( Int, Decode.Decoder Value )
-    valueDecoders =
-        [ ( 8, Decode.string )
-        , ( 9, Decode.int32 )
-        ]
+    formValueDecoder : Decode.Decoder FormValue
+    formValueDecoder =
+        -- <0A 03 6B 65 79 12 05 76 61 6C 75 65> == Just (FormValue "key" (StringValue "value"))
+        -- <0A 03 6B 65 79 10 64>                == Just (FormValue "key" (IntValue 100))
+        -- <0A 03 6B 65 79>                      == Just (FormValue "key" NoValue)
+        -- <>                                    == Just (FormValue "" NoValue)
+        Decode.message (FormValue "" NoValue)
+            [ Decode.optional 7 string setKey
+            , Decode.oneOf
+                [ ( 8, Decode.string )
+                , ( 9, Decode.int32 )
+                ]
+                setValue
+            ]
 
-    type alias KeyValue =
-        { key : String -- field number 7
-        , value : Value -- field number 8 or 9
-        }
+    -- SETTERS
+    setKey : a -> { b | key : a } -> { b | key : a }
+    setKey value model =
+        { model | key = value }
 
-    keyValueDecoder : Decode.Decoder KeyValue
-    keyValueDecoder =
-        Decode.message KeyValue
-            |> Decode.optional 7 string ""
-            |> Decode.oneOf valueDecoders NoValue
+    setValue : a -> { b | value : a } -> { b | value : a }
+    setValue value model =
+        { model | value = value }
 
 -}
-oneOf : List ( Int, Decoder a ) -> a -> Decoder (a -> b) -> Decoder b
-oneOf fieldDecoders default decoder =
-    field (decodeOneOf fieldDecoders default) decoder
-
-
-decodeOneOf : List ( Int, Decoder a ) -> a -> Message -> Maybe a
-decodeOneOf decoders default data =
-    case lastField (List.map (Tuple.mapSecond wireType) decoders) data of
-        FieldData ( fieldNumber, bs ) ->
-            decoders
-                |> List.filter ((==) fieldNumber << Tuple.first)
-                |> List.map Tuple.second
-                |> List.head
-                |> Maybe.andThen (\decoder -> decode decoder bs)
-
-        NotPresent ->
-            Just default
-
-        Invalid ->
-            Nothing
-
-
-field : (Message -> Maybe a) -> Decoder (a -> b) -> Decoder b
-field decodeField decoder =
-    case decoder of
-        MessageDecoder decoder_ ->
-            MessageDecoder
-                (\width ->
-                    Decode.andThen
-                        (\( data, toB ) ->
-                            case decodeField data of
-                                Just a ->
-                                    Decode.succeed ( data, toB a )
-
-                                Nothing ->
-                                    Decode.fail
-                        )
-                        (decoder_ width)
-                )
-
-        Decoder _ decoder_ ->
-            MessageDecoder (\width -> Decode.map2 (\dict ( _, v ) -> ( dict, v )) (messageDecoder width) (decoder_ width))
-                |> field decodeField
+oneOf : List ( Int, Decoder a ) -> (a -> b -> b) -> FieldDecoder b
+oneOf decoders set =
+    decoders
+        |> List.map (Tuple.mapSecond (map set))
+        |> FieldDecoder False
 
 
 
@@ -420,21 +442,21 @@ field decodeField decoder =
 -}
 int32 : Decoder Int
 int32 =
-    Decoder VarInt (always int32Decoder)
+    Decoder VarInt (always varIntDecoder)
 
 
 {-| Decode a variable number of bytes into an integer from 0 to 4294967295.
 -}
 uint32 : Decoder Int
 uint32 =
-    Decoder VarInt (always (Decode.map (Tuple.mapSecond unsigned) int32Decoder))
+    Decoder VarInt (always (Decode.map (Tuple.mapSecond unsigned) varIntDecoder))
 
 
 {-| Decode a variable number of bytes into an integer from -2147483648 to 2147483647.
 -}
 sint32 : Decoder Int
 sint32 =
-    Decoder VarInt (always (Decode.map (Tuple.mapSecond zigZag) int32Decoder))
+    Decoder VarInt (always (Decode.map (Tuple.mapSecond zigZag) varIntDecoder))
 
 
 {-| Decode four bytes into an integer from 0 to 4294967295.
@@ -534,54 +556,150 @@ This is useful when encoding custom types as an enumeration:
                             Unrecognized v
                 )
 
-`Unrecognized Int` is only used for values that are present but not known. For `proto2` decoding, it is left out and unknown values are decoded as the default type.
-The first type in the `.proto` file is the default type (in this case, `Apple`).
+`Unrecognized Int` is only used for values that are present but not known. For
+`proto2` decoding it is left out and unrecognized values are being ignored.
 
 -}
 map : (a -> b) -> Decoder a -> Decoder b
-map fn decoder =
-    case decoder of
-        MessageDecoder decoder_ ->
-            MessageDecoder (\width -> Decode.map (Tuple.mapSecond fn) (decoder_ width))
-
-        Decoder wireType_ decoder_ ->
-            Decoder wireType_ (\width -> Decode.map (Tuple.mapSecond fn) (decoder_ width))
+map fn (Decoder wireType decoder) =
+    Decoder wireType (\width -> Decode.map (Tuple.mapSecond fn) (decoder width))
 
 
 
--- HELPERS
+-- BYTES DECODER
 
 
-decodeList : (Int -> Decode.Decoder ( Int, a )) -> List Bytes -> Maybe (List a)
-decodeList decoder chunks =
-    case chunks of
-        bs :: nextChunks ->
-            Decode.decode (packedDecoder (Bytes.width bs) decoder) bs
-                |> Maybe.andThen
-                    (\values_ ->
-                        decodeList decoder nextChunks
-                            |> Maybe.map (\values -> values ++ values_)
-                    )
-
-        [] ->
-            Just []
+type alias DecodeState a =
+    { width : Int
+    , requiredFieldNumbers : Set.Set Int
+    , dict : Dict.Dict Int (Decoder (a -> a))
+    , model : a
+    }
 
 
-packedDecoder : Int -> (Int -> Decode.Decoder ( Int, a )) -> Decode.Decoder (List a)
-packedDecoder width decoder =
-    Decode.loop ( width, [] )
-        (\( width_, values ) ->
-            decoder width
-                |> Decode.map (Tuple.mapBoth (\n -> width_ - n) (\v -> values ++ [ v ]))
-                |> Decode.map
-                    (\state ->
-                        if Tuple.first state <= 0 then
-                            Decode.Done (Tuple.second state)
+stepMessage : Int -> DecodeState a -> Decode.Decoder (Decode.Step (DecodeState a) ( Int, a ))
+stepMessage width state =
+    if state.width <= 0 then
+        if Set.isEmpty state.requiredFieldNumbers then
+            Decode.succeed (Decode.Done ( width, state.model ))
 
-                        else
-                            Decode.Loop state
-                    )
-        )
+        else
+            Decode.fail
+
+    else
+        tagDecoder
+            |> Decode.andThen
+                (\( tagWidth, fieldNumber, wireType ) ->
+                    case Dict.get fieldNumber state.dict of
+                        Just decoder ->
+                            Decode.map
+                                (\( valueWidth, fn ) ->
+                                    Decode.Loop
+                                        { state
+                                            | width = state.width - tagWidth - valueWidth
+                                            , requiredFieldNumbers = Set.remove fieldNumber state.requiredFieldNumbers
+                                            , model = fn state.model
+                                        }
+                                )
+                                (bytesDecoder wireType decoder)
+
+                        Nothing ->
+                            Decode.succeed (Decode.Loop { state | width = state.width - tagWidth })
+                )
+
+
+bytesDecoder : WireType -> Decoder a -> Decode.Decoder ( Int, a )
+bytesDecoder wireType (Decoder type_ decoder) =
+    if type_ /= wireType then
+        Decode.fail
+
+    else
+        case wireType of
+            VarInt ->
+                decoder -1
+
+            Bit64 ->
+                decoder 8
+
+            LengthDelimited ->
+                varIntDecoder
+                    |> Decode.andThen
+                        (\( lengthWidth, length ) ->
+                            Decode.map (Tuple.mapFirst ((+) lengthWidth)) (decoder length)
+                        )
+
+            StartGroup ->
+                Decode.fail
+
+            EndGroup ->
+                Decode.fail
+
+            Bit32 ->
+                decoder 4
+
+
+tagDecoder : Decode.Decoder ( Int, Int, WireType )
+tagDecoder =
+    varIntDecoder
+        |> Decode.andThen
+            (\( usedBytes, value ) ->
+                let
+                    wireType =
+                        case Bitwise.and 0x07 value of
+                            0 ->
+                                Just VarInt
+
+                            1 ->
+                                Just Bit64
+
+                            2 ->
+                                Just LengthDelimited
+
+                            3 ->
+                                Just StartGroup
+
+                            4 ->
+                                Just EndGroup
+
+                            5 ->
+                                Just Bit32
+
+                            _ ->
+                                Nothing
+                in
+                case wireType of
+                    Just wireType_ ->
+                        Decode.succeed ( usedBytes, Bitwise.shiftRightZfBy 3 value, wireType_ )
+
+                    Nothing ->
+                        Decode.fail
+            )
+
+
+varIntDecoder : Decode.Decoder ( Int, Int )
+varIntDecoder =
+    Decode.unsignedInt8
+        |> Decode.andThen
+            (\octet ->
+                if Bitwise.and 0x80 octet == 0x80 then
+                    Decode.map (\( usedBytes, value ) -> ( usedBytes + 1, Bitwise.and 0x7F octet + Bitwise.shiftLeftBy 7 value )) varIntDecoder
+
+                else
+                    Decode.succeed ( 1, octet )
+            )
+
+
+stepPackedField : Int -> (Int -> Decode.Decoder ( Int, a )) -> ( Int, List a ) -> Decode.Decoder (Decode.Step ( Int, List a ) ( Int, List a ))
+stepPackedField fullWidth decoder ( width, values ) =
+    if width <= 0 then
+        Decode.succeed (Decode.Done ( fullWidth, values ))
+
+    else
+        Decode.map (\( w, value ) -> Decode.Loop ( width - w, values ++ [ value ] )) (decoder width)
+
+
+
+-- VARINT
 
 
 unsigned : Int -> Int
@@ -596,13 +714,3 @@ unsigned value =
 zigZag : Int -> Int
 zigZag value =
     Bitwise.xor (Bitwise.shiftRightZfBy 1 value) (-1 * Bitwise.and 1 value)
-
-
-wireType : Decoder a -> WireType
-wireType decoder =
-    case decoder of
-        MessageDecoder _ ->
-            LengthDelimited
-
-        Decoder wireType_ _ ->
-            wireType_

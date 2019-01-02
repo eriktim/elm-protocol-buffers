@@ -9,12 +9,16 @@ module ProtoBuf.Encode exposing
     , list, dict
     )
 
-{-| Library for turning Elm values into [ProtoBuf](https://developers.google.com/protocol-buffers) messages.
+{-| Library for turning Elm values into
+[ProtoBuf](https://developers.google.com/protocol-buffers) messages.
 
-> The examples show `Bytes` values like this: `<12* 05* 68 65 6C 6C 6F>`.
-> The `*` means the byte is added for the ProtoBuf logic. It does not contain any real value.
-> Here `12` means a _length delimited_ encoded value for field number `2`. `05` is the length in bytes. The five bytes that follow are decoded as `hello`.
-> Read [this](https://developers.google.com/protocol-buffers/docs/encoding) if you want to learn more about how ProtoBuf messages are encoded.
+> The examples show `Bytes` values like this: `<3A* 05* 68 65 6C 6C 6F>`. The
+> `*` means the byte is ProtoBuf _metadata_. It does not contain any real
+> value. Here `3A` means the next encoded field is a _length delimited_ value
+> for field number `7`. `05` is the length of the encoded value. Those five
+> bytes contain the string `hello`. Read
+> [this](https://developers.google.com/protocol-buffers/docs/encoding) if
+> you want to learn more about how ProtoBuf encoding works.
 
 
 # Encoding
@@ -69,7 +73,8 @@ import Internal.ProtoBuf exposing (WireType(..))
 -- ENCODER
 
 
-{-| Describes how to generate a sequence of bytes according to the specification of ProtoBuf.
+{-| Describes how to generate a sequence of bytes according to the
+specification of ProtoBuf.
 -}
 type Encoder
     = Encoder WireType ( Int, Encode.Encoder )
@@ -87,8 +92,10 @@ type Encoder
      encode (sint32 127)   -- <FE 01>
      encode (sfixed32 127) -- <7F 00 00 00>
 
-Values are encoded together with a field number and the [_wire type_](https://developers.google.com/protocol-buffers/docs/encoding#structure) conform the specification in a `.proto` file.
-This allows decoders to know what field it is decoding and to read the right number of `Bytes`.
+Values are encoded together with a field number and the
+[_wire type_](https://developers.google.com/protocol-buffers/docs/encoding#structure)
+conform the specification in a `.proto` file. This allows decoders to know what
+field it is decoding and to read the right number of `Bytes`.
 
     import ProtoBuf.Encode as Encode
 
@@ -137,8 +144,9 @@ encode encoder =
             Encode.encode <| Encode.sequence []
 
 
-{-| Encode a record into a message.
-For this you need to provide a list of **unique** field numbers (between `1` and `536870911`) and their corresponding `Encoder`s.
+{-| Encode a record into a message. For this you need to provide a list of
+**unique** field numbers (between `1` and `536870911`) and their corresponding
+`Encoder`s.
 
      type alias Foo =
          { a : Float
@@ -161,7 +169,7 @@ For this you need to provide a list of **unique** field numbers (between `1` and
 -}
 message : List ( Int, Encoder ) -> Encoder
 message items =
-    uniqueByFieldNumber items
+    items
         |> List.sortBy Tuple.first
         |> List.map encodeKeyValuePair
         |> sequence
@@ -172,8 +180,9 @@ message items =
 -- INTEGER
 
 
-{-| Encode integers from `-2147483648` to `2147483647` into a message.
-Uses variable-length encoding. Inefficient for encoding negative numbers – if your field is likely to have negative values, use [`sint32`](#sint32) instead.
+{-| Encode integers from `-2147483648` to `2147483647` into a message. Uses
+variable-length encoding. Inefficient for encoding negative numbers – if your
+field is likely to have negative values, use [`sint32`](#sint32) instead.
 
      encode (int32 0)    -- <00>
      encode (int32 100)  -- <64>
@@ -223,8 +232,9 @@ uint32 =
     Encoder VarInt << varInt << unsigned
 
 
-{-| Encode integers from `-2147483648` to `2147483647` into a message.
-Uses variable-length encoding. These encoder encodes negative numbers more efficiently than [`int32`](#int32).
+{-| Encode integers from `-2147483648` to `2147483647` into a message. Uses
+variable-length encoding. These encoder encodes negative numbers more
+efficiently than [`int32`](#int32).
 
      encode (sint32 0)    -- <00>
      encode (sint32 100)  -- <C8 01>
@@ -236,8 +246,9 @@ sint32 =
     Encoder VarInt << varInt << zigZag
 
 
-{-| Encode integers from `0` to `4294967295` into a message.
-Always four bytes. More efficient than [`uint32`](#uint32) if values are often greater than `268435456`.
+{-| Encode integers from `0` to `4294967295` into a message. Always four bytes.
+More efficient than [`uint32`](#uint32) if values are often greater than
+`268435456`.
 
      encode (fixed32 0)   -- <00 00 00 00>
      encode (fixed32 100) -- <64 00 00 00>
@@ -370,8 +381,8 @@ ProtoBuf support two kind of encodings:
              ]
          )
 
-Packed encoding is the default as it uses less bytes on the wire.
-This package will automatically fall-back to non-packed encoding for non-scalar numeric types.
+Packed encoding is preferred as it uses less bytes on the wire. `list` will
+automatically fall-back to non-packed encoding for non-scalar numeric types.
 
 -}
 list : (a -> Encoder) -> List a -> Encoder
@@ -379,8 +390,8 @@ list fn =
     ListEncoder << List.map fn
 
 
-{-| Encode a dictionary of key-value pairs.
-This requires providing one encoder for the keys and one for the values.
+{-| Encode a dictionary of key-value pairs. This requires providing one encoder
+for the keys and one for the values.
 
     let
         value =
@@ -405,7 +416,9 @@ dict encodeKey encodeValue dict_ =
         |> ListEncoder
 
 
-{-| Encode nothing. Note that you can easily combine this encoder with _any_ field number to provide to [`message`](#message) as literally **nothing** will be encoded.
+{-| Encode nothing. Note that you can easily combine this encoder with _any_
+field number to pass to [`message`](#message) as literally **nothing** will be
+encoded.
 
 This can be useful when encoding embedded messages:
 
@@ -425,7 +438,7 @@ This can be useful when encoding embedded messages:
 
 Or when encoding custom types:
 
-    type alias KeyValue =
+    type alias FormValue =
         { key : String
         , value : Value
         }
@@ -434,6 +447,13 @@ Or when encoding custom types:
         = StringValue String
         | IntValue Int
         | NoValue
+
+    encodeKeyValue : FormValue -> Encoder
+    encodeKeyValue formValue =
+        message
+            [ ( 1, string formValue.key )
+            , encodeValue formValue.value
+            ]
 
     encodeValue : Value -> ( Int, Encoder )
     encodeValue value =
@@ -446,13 +466,6 @@ Or when encoding custom types:
 
             NoValue ->
                 ( 0, none )
-
-    encodeKeyValue : KeyValue -> Encoder
-    encodeKeyValue keyValue =
-        message
-            [ ( 1, string keyValue.key )
-            , encodeValue keyValue.value
-            ]
 
 -}
 none : Encoder
@@ -597,21 +610,3 @@ varIntEncoders value =
 
     else
         [ Encode.unsignedInt8 base128 ]
-
-
-
--- UNIQUE FIELDS
-
-
-uniqueByFieldNumber : List ( Int, Encoder ) -> List ( Int, Encoder )
-uniqueByFieldNumber items =
-    case items of
-        x :: xs ->
-            if List.member (Tuple.first x) (List.map Tuple.first xs) then
-                uniqueByFieldNumber xs
-
-            else
-                x :: uniqueByFieldNumber xs
-
-        [] ->
-            []

@@ -50,19 +50,19 @@ suite =
                 \num value ->
                     Encode.message [ ( num, Encode.dict Encode.int32 Encode.string value ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.mapped num Decode.int32 0 Decode.string "")
+                        |> Decode.decode (Decode.message Dict.empty [ Decode.mapped num ( 0, "" ) Decode.int32 Decode.string identity updateSelf ])
                         |> Expect.equal (Just value)
             , fuzz2 fieldNumber enum "custom types without associated data" <|
                 \num value ->
                     Encode.message [ ( num, enumEncoder value ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.required num enumDecoder)
+                        |> Decode.decode (Decode.message EnumA [ Decode.required num enumDecoder updateSelf ])
                         |> Expect.equal (Just value)
             , fuzz oneOf "custom types with associated data" <|
                 \value ->
                     Encode.message [ oneOfEncoder value ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.oneOf oneOfDecoders None)
+                        |> Decode.decode (Decode.message None [ Decode.oneOf oneOfDecoders updateSelf ])
                         |> Expect.equal (Just value)
             ]
         , describe "protocol buffer"
@@ -70,13 +70,13 @@ suite =
                 \num ->
                     Encode.message [ ( num, Encode.string "field" ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.required num Decode.string)
+                        |> Decode.decode (Decode.message "" [ Decode.required num Decode.string updateSelf ])
                         |> Expect.equal (Just "field")
             , fuzz string "default values" <|
                 \default ->
                     Encode.message []
                         |> Encode.encode
-                        |> Decode.decode (Decode.message identity |> Decode.optional 1 Decode.string default)
+                        |> Decode.decode (Decode.message default [ Decode.optional 1 Decode.string updateSelf ])
                         |> Expect.equal (Just default)
             , fuzz message "messages" <|
                 \value ->
@@ -276,17 +276,19 @@ listMessageEncoder value =
 
 messageDecoder : Decode.Decoder Message
 messageDecoder =
-    Decode.message Message
-        |> Decode.optional 1 Decode.string ""
-        |> Decode.optional 2 Decode.double 0
-        |> Decode.optional 3 (Decode.map Just listMessageDecoder) Nothing
+    Decode.message (Message "" 0 Nothing)
+        [ Decode.optional 1 Decode.string (\value model -> { model | string = value })
+        , Decode.optional 2 Decode.double (\value model -> { model | double = value })
+        , Decode.optional 3 (Decode.map Just listMessageDecoder) (\value model -> { model | message = value })
+        ]
 
 
 listMessageDecoder : Decode.Decoder ListMessage
 listMessageDecoder =
-    Decode.message ListMessage
-        |> Decode.repeated 1 Decode.string
-        |> Decode.repeated 2 Decode.int32
+    Decode.message (ListMessage [] [])
+        [ Decode.repeated 1 Decode.string .strings (\value model -> { model | strings = value })
+        , Decode.repeated 2 Decode.int32 .int32s (\value model -> { model | int32s = value })
+        ]
 
 
 
@@ -298,3 +300,8 @@ transmit encoder decoder value =
     Encode.encode (encoder value)
         |> Decode.decode decoder
         |> Expect.equal (Just value)
+
+
+updateSelf : a -> a -> a
+updateSelf value _ =
+    value
