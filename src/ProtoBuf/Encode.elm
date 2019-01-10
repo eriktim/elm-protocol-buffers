@@ -173,7 +173,7 @@ message items =
         |> List.sortBy Tuple.first
         |> List.map encodeKeyValuePair
         |> sequence
-        |> Encoder LengthDelimited
+        |> (\e -> Encoder (LengthDelimited (Tuple.first e)) e)
 
 
 
@@ -316,7 +316,11 @@ float v =
 -}
 string : String -> Encoder
 string v =
-    Encoder LengthDelimited ( Encode.getStringWidth v, Encode.string v )
+    let
+        width =
+            Encode.getStringWidth v
+    in
+    Encoder (LengthDelimited width) ( width, Encode.string v )
 
 
 
@@ -351,7 +355,11 @@ bool v =
 -}
 bytes : Bytes -> Encoder
 bytes v =
-    Encoder LengthDelimited ( Bytes.width v, Encode.bytes v )
+    let
+        width =
+            Bytes.width v
+    in
+    Encoder (LengthDelimited width) ( width, Encode.bytes v )
 
 
 
@@ -489,13 +497,6 @@ sequence items =
 encodeKeyValuePair : ( Int, Encoder ) -> ( Int, Encode.Encoder )
 encodeKeyValuePair ( fieldNumber, encoder ) =
     case encoder of
-        Encoder LengthDelimited encoder_ ->
-            sequence
-                [ tag fieldNumber LengthDelimited
-                , varInt (Tuple.first encoder_)
-                , encoder_
-                ]
-
         Encoder wireType encoder_ ->
             sequence
                 [ tag fieldNumber wireType
@@ -506,8 +507,7 @@ encodeKeyValuePair ( fieldNumber, encoder ) =
             case packedEncoders encoders of
                 Just encoder_ ->
                     sequence
-                        [ tag fieldNumber LengthDelimited
-                        , varInt (Tuple.first encoder_)
+                        [ tag fieldNumber (LengthDelimited (Tuple.first encoder_))
                         , encoder_
                         ]
 
@@ -522,11 +522,12 @@ packedEncoders : List Encoder -> Maybe ( Int, Encode.Encoder )
 packedEncoders encoders =
     case encoders of
         (Encoder wireType encoder) :: others ->
-            if wireType == LengthDelimited then
-                Nothing
+            case wireType of
+                LengthDelimited _ ->
+                    Nothing
 
-            else
-                Just <| sequence (encoder :: List.filterMap unwrap others)
+                _ ->
+                    Just <| sequence (encoder :: List.filterMap unwrap others)
 
         _ ->
             Nothing
@@ -545,28 +546,27 @@ unwrap encoder =
 tag : Int -> WireType -> ( Int, Encode.Encoder )
 tag fieldNumber wireType =
     let
-        base4 =
-            case wireType of
-                VarInt ->
-                    0
-
-                Bit64 ->
-                    1
-
-                LengthDelimited ->
-                    2
-
-                StartGroup ->
-                    3
-
-                EndGroup ->
-                    4
-
-                Bit32 ->
-                    5
+        encodeTag base4 =
+            varInt (Bitwise.or (Bitwise.shiftLeftBy 3 fieldNumber) base4)
     in
-    Bitwise.or (Bitwise.shiftLeftBy 3 fieldNumber) base4
-        |> varInt
+    case wireType of
+        VarInt ->
+            encodeTag 0
+
+        Bit64 ->
+            encodeTag 1
+
+        LengthDelimited width ->
+            sequence [ encodeTag 2, varInt width ]
+
+        StartGroup ->
+            encodeTag 3
+
+        EndGroup ->
+            encodeTag 4
+
+        Bit32 ->
+            encodeTag 5
 
 
 

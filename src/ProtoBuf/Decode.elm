@@ -7,6 +7,7 @@ module ProtoBuf.Decode exposing
     , bool
     , bytes
     , map
+    , lazy
     )
 
 {-| Library for turning [ProtoBuf](https://developers.google.com/protocol-buffers) messages into Elm values.
@@ -51,6 +52,11 @@ module ProtoBuf.Decode exposing
 
 @docs map
 
+
+# Lazy
+
+@docs lazy
+
 -}
 
 import Bitwise
@@ -69,7 +75,7 @@ import Set
 {-| Describes how to turn a sequence of ProtoBuf-encoded bytes into a nice Elm value.
 -}
 type Decoder a
-    = Decoder WireType (Int -> Decode.Decoder ( Int, a ))
+    = Decoder (WireType -> Decode.Decoder ( Int, List a ))
 
 
 {-| Describes how to decode a certain field in a ProtoBuf-encoded message and
@@ -172,8 +178,14 @@ sequence). Hence, you might want to use the `expectBytes` as provided here.
 
 -}
 decode : Decoder a -> Bytes -> Maybe a
-decode (Decoder _ decoder) bs =
-    Decode.decode (Decode.map Tuple.second <| decoder (Bytes.width bs)) bs
+decode (Decoder decoder) bs =
+    let
+        wireType =
+            LengthDelimited (Bytes.width bs)
+    in
+    Decode.decode (decoder wireType) bs
+        |> Maybe.map Tuple.second
+        |> Maybe.andThen List.head
 
 
 {-| Decode **all remaining bytes** into an record. The initial value given here
@@ -215,15 +227,21 @@ message v fieldDecoders =
                 |> Tuple.mapFirst Set.fromList
                 |> Tuple.mapSecond Dict.fromList
     in
-    Decoder LengthDelimited
-        (\width ->
-            Decode.loop
-                { width = width
-                , requiredFieldNumbers = requiredSet
-                , dict = dict
-                , model = v
-                }
-                (stepMessage width)
+    Decoder
+        (\wireType ->
+            case wireType of
+                LengthDelimited width ->
+                    Decode.map (Tuple.mapSecond List.singleton) <|
+                        Decode.loop
+                            { width = width
+                            , requiredFieldNumbers = requiredSet
+                            , dict = dict
+                            , model = v
+                            }
+                            (stepMessage width)
+
+                _ ->
+                    Decode.fail
         )
 
 
@@ -330,12 +348,7 @@ repeated : Int -> Decoder a -> (b -> List a) -> (List a -> b -> b) -> FieldDecod
 repeated fieldNumber decoder get set =
     let
         listDecoder =
-            case decoder of
-                Decoder LengthDelimited _ ->
-                    map List.singleton decoder
-
-                Decoder _ decoder_ ->
-                    Decoder LengthDelimited (\width -> Decode.loop ( width, [] ) (stepPackedField width decoder_))
+            map List.singleton decoder
 
         update value model =
             set (get model ++ value) model
@@ -442,35 +455,35 @@ oneOf decoders set =
 -}
 int32 : Decoder Int
 int32 =
-    Decoder VarInt (always varIntDecoder)
+    packedDecoder VarInt varIntDecoder
 
 
 {-| Decode a variable number of bytes into an integer from 0 to 4294967295.
 -}
 uint32 : Decoder Int
 uint32 =
-    Decoder VarInt (always (Decode.map (Tuple.mapSecond unsigned) varIntDecoder))
+    packedDecoder VarInt (Decode.map (Tuple.mapSecond unsigned) varIntDecoder)
 
 
 {-| Decode a variable number of bytes into an integer from -2147483648 to 2147483647.
 -}
 sint32 : Decoder Int
 sint32 =
-    Decoder VarInt (always (Decode.map (Tuple.mapSecond zigZag) varIntDecoder))
+    packedDecoder VarInt (Decode.map (Tuple.mapSecond zigZag) varIntDecoder)
 
 
 {-| Decode four bytes into an integer from 0 to 4294967295.
 -}
 fixed32 : Decoder Int
 fixed32 =
-    Decoder VarInt (always (Decode.map (Tuple.pair 4) (Decode.unsignedInt32 LE)))
+    packedDecoder Bit32 (Decode.map (Tuple.pair 4) (Decode.unsignedInt32 LE))
 
 
 {-| Decode four bytes into an integer from -2147483648 to 2147483647.
 -}
 sfixed32 : Decoder Int
 sfixed32 =
-    Decoder VarInt (always (Decode.map (Tuple.pair 4) (Decode.signedInt32 LE)))
+    packedDecoder Bit32 (Decode.map (Tuple.pair 4) (Decode.signedInt32 LE))
 
 
 
@@ -481,14 +494,14 @@ sfixed32 =
 -}
 double : Decoder Float
 double =
-    Decoder Bit64 (always (Decode.map (Tuple.pair 8) (Decode.float64 LE)))
+    packedDecoder Bit64 (Decode.map (Tuple.pair 8) (Decode.float64 LE))
 
 
 {-| Decode four bytes into a floating point number.
 -}
 float : Decoder Float
 float =
-    Decoder Bit32 (always (Decode.map (Tuple.pair 4) (Decode.float32 LE)))
+    packedDecoder Bit32 (Decode.map (Tuple.pair 4) (Decode.float32 LE))
 
 
 
@@ -499,7 +512,7 @@ float =
 -}
 string : Decoder String
 string =
-    Decoder LengthDelimited (\width -> Decode.map (Tuple.pair width) (Decode.string width))
+    lengthDelimitedDecoder Decode.string
 
 
 
@@ -510,7 +523,7 @@ string =
 -}
 bool : Decoder Bool
 bool =
-    Decoder VarInt (always (Decode.map (Tuple.pair 1 << (/=) 0) Decode.unsignedInt8))
+    packedDecoder VarInt (Decode.map (Tuple.mapSecond ((/=) 0)) varIntDecoder)
 
 
 
@@ -521,7 +534,7 @@ bool =
 -}
 bytes : Decoder Bytes
 bytes =
-    Decoder LengthDelimited (\width -> Decode.map (Tuple.pair width) (Decode.bytes width))
+    lengthDelimitedDecoder Decode.bytes
 
 
 
@@ -561,8 +574,66 @@ This is useful when encoding custom types as an enumeration:
 
 -}
 map : (a -> b) -> Decoder a -> Decoder b
-map fn (Decoder wireType decoder) =
-    Decoder wireType (\width -> Decode.map (Tuple.mapSecond fn) (decoder width))
+map fn (Decoder decoder) =
+    Decoder (\wireType -> Decode.map (Tuple.mapSecond (List.map fn)) (decoder wireType))
+
+
+
+-- LAZY
+
+
+{-| Sometimes you have messages with a recursive structure, like nested
+comments. You must use `lazy`to make sure your decoder unrolls lazily.
+
+    type alias Comment =
+        { message : String
+        , responses : Responses
+        }
+
+    type Responses
+        = Responses (List Comment)
+
+    commentDecoder : Decoder Comment
+    commentDecoder =
+        Decode.message (Comment "" (Responses []))
+            [ Decode.optional 1 Decode.string setMessage
+            , Decode.repeated 2
+                (Decode.lazy (\_ -> commentDecoder))
+                (unwrapResponses <<. responses)
+                (setResponses << Responses)
+            ]
+
+    -- SETTERS
+    setMessage : a -> { b | message : a } -> { b | message : a }
+    setMessage value model =
+        { model | message = value }
+
+    setResponses : a -> { b | responses : a } -> { b | responses : a }
+    setResponses value model =
+        { model | responses = value }
+
+    unwrapResponses : Responses -> List Comment
+    unwrapResponses (Responses responses) =
+        responses
+
+[Here](https://elm-lang.org/0.19.0/bad-recursion) you can read more about
+recursive data structures
+
+-}
+lazy : (() -> Decoder a) -> Decoder a
+lazy delayedDecoder =
+    Decoder
+        (\wireType ->
+            Decode.succeed ()
+                |> Decode.andThen
+                    (\v ->
+                        let
+                            (Decoder decoder) =
+                                delayedDecoder v
+                        in
+                        decoder wireType
+                    )
+        )
 
 
 
@@ -589,90 +660,57 @@ stepMessage width state =
     else
         tagDecoder
             |> Decode.andThen
-                (\( tagWidth, fieldNumber, wireType ) ->
+                (\( usedBytes, ( fieldNumber, wireType ) ) ->
                     case Dict.get fieldNumber state.dict of
-                        Just decoder ->
+                        Just (Decoder decoder) ->
                             Decode.map
-                                (\( valueWidth, fn ) ->
+                                (\( n, fns ) ->
                                     Decode.Loop
                                         { state
-                                            | width = state.width - tagWidth - valueWidth
+                                            | width = state.width - usedBytes - n
                                             , requiredFieldNumbers = Set.remove fieldNumber state.requiredFieldNumbers
-                                            , model = fn state.model
+                                            , model = List.foldl (<|) state.model fns
                                         }
                                 )
-                                (bytesDecoder wireType decoder)
+                                (decoder wireType)
 
                         Nothing ->
-                            Decode.succeed (Decode.Loop { state | width = state.width - tagWidth })
+                            unknownFieldDecoder wireType
+                                |> Decode.map (\n -> Decode.Loop { state | width = state.width - usedBytes - n })
                 )
 
 
-bytesDecoder : WireType -> Decoder a -> Decode.Decoder ( Int, a )
-bytesDecoder wireType (Decoder type_ decoder) =
-    if type_ /= wireType then
-        Decode.fail
-
-    else
-        case wireType of
-            VarInt ->
-                decoder -1
-
-            Bit64 ->
-                decoder 8
-
-            LengthDelimited ->
-                varIntDecoder
-                    |> Decode.andThen
-                        (\( lengthWidth, length ) ->
-                            Decode.map (Tuple.mapFirst ((+) lengthWidth)) (decoder length)
-                        )
-
-            StartGroup ->
-                Decode.fail
-
-            EndGroup ->
-                Decode.fail
-
-            Bit32 ->
-                decoder 4
-
-
-tagDecoder : Decode.Decoder ( Int, Int, WireType )
+tagDecoder : Decode.Decoder ( Int, ( Int, WireType ) )
 tagDecoder =
     varIntDecoder
         |> Decode.andThen
             (\( usedBytes, value ) ->
                 let
-                    wireType =
-                        case Bitwise.and 0x07 value of
-                            0 ->
-                                Just VarInt
-
-                            1 ->
-                                Just Bit64
-
-                            2 ->
-                                Just LengthDelimited
-
-                            3 ->
-                                Just StartGroup
-
-                            4 ->
-                                Just EndGroup
-
-                            5 ->
-                                Just Bit32
-
-                            _ ->
-                                Nothing
+                    fieldNumber =
+                        Bitwise.shiftRightZfBy 3 value
                 in
-                case wireType of
-                    Just wireType_ ->
-                        Decode.succeed ( usedBytes, Bitwise.shiftRightZfBy 3 value, wireType_ )
+                Decode.map (\( n, wireType ) -> ( usedBytes + n, ( fieldNumber, wireType ) )) <|
+                    case Bitwise.and 0x07 value of
+                        0 ->
+                            Decode.succeed ( 0, VarInt )
 
-                    Nothing ->
-                        Decode.fail
+                        1 ->
+                            Decode.succeed ( 0, Bit64 )
+
+                        2 ->
+                            Decode.map (Tuple.mapSecond LengthDelimited) varIntDecoder
+
+                        3 ->
+                            Decode.succeed ( 0, StartGroup )
+
+                        4 ->
+                            Decode.succeed ( 0, EndGroup )
+
+                        5 ->
+                            Decode.succeed ( 0, Bit32 )
+
+                        _ ->
+                            Decode.fail
             )
 
 
@@ -689,13 +727,65 @@ varIntDecoder =
             )
 
 
-stepPackedField : Int -> (Int -> Decode.Decoder ( Int, a )) -> ( Int, List a ) -> Decode.Decoder (Decode.Step ( Int, List a ) ( Int, List a ))
+lengthDelimitedDecoder : (Int -> Decode.Decoder a) -> Decoder a
+lengthDelimitedDecoder decoder =
+    Decoder
+        (\wireType ->
+            case wireType of
+                LengthDelimited width ->
+                    Decode.map (Tuple.pair width << List.singleton) (decoder width)
+
+                _ ->
+                    Decode.fail
+        )
+
+
+packedDecoder : WireType -> Decode.Decoder ( Int, a ) -> Decoder a
+packedDecoder decoderWireType decoder =
+    Decoder
+        (\wireType ->
+            case wireType of
+                LengthDelimited width ->
+                    Decode.loop ( width, [] ) (stepPackedField width decoder)
+
+                _ ->
+                    if wireType == decoderWireType then
+                        Decode.map (Tuple.mapSecond List.singleton) decoder
+
+                    else
+                        Decode.fail
+        )
+
+
+stepPackedField : Int -> Decode.Decoder ( Int, a ) -> ( Int, List a ) -> Decode.Decoder (Decode.Step ( Int, List a ) ( Int, List a ))
 stepPackedField fullWidth decoder ( width, values ) =
     if width <= 0 then
         Decode.succeed (Decode.Done ( fullWidth, values ))
 
     else
-        Decode.map (\( w, value ) -> Decode.Loop ( width - w, values ++ [ value ] )) (decoder width)
+        Decode.map (\( w, value ) -> Decode.Loop ( width - w, values ++ [ value ] )) decoder
+
+
+unknownFieldDecoder : WireType -> Decode.Decoder Int
+unknownFieldDecoder wireType =
+    case wireType of
+        VarInt ->
+            Decode.map Tuple.first varIntDecoder
+
+        Bit64 ->
+            Decode.map (always 8) (Decode.bytes 8)
+
+        LengthDelimited width ->
+            Decode.map (always width) (Decode.bytes width)
+
+        StartGroup ->
+            Decode.fail
+
+        EndGroup ->
+            Decode.fail
+
+        Bit32 ->
+            Decode.map (always 4) (Decode.bytes 4)
 
 
 
