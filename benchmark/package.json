@@ -1,0 +1,13 @@
+{
+  "name": "benchmark",
+  "version": "1.0.0",
+  "dependencies": {},
+  "devDependencies": {
+    "uglify-js": "~3.4.9"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "BSD-3-Clause"
+}
