@@ -413,13 +413,12 @@ different types of data its return type must be a custom type.
 
     type alias FormValue =
         { key : String -- field number 7
-        , value : Value -- field number 8 or 9
+        , value : Maybe Value -- field number 8 or 9
         }
 
     type Value
         = StringValue String
         | IntValue Int
-        | NoValue
 
     formValueDecoder : Decode.Decoder FormValue
     formValueDecoder =
@@ -430,8 +429,8 @@ different types of data its return type must be a custom type.
         Decode.message (FormValue "" NoValue)
             [ Decode.optional 7 string setKey
             , Decode.oneOf
-                [ ( 8, Decode.string )
-                , ( 9, Decode.int32 )
+                [ ( 8, Decode.map StringValue Decode.string )
+                , ( 9, Decode.map IntValue Decode.int32 )
                 ]
                 setValue
             ]
@@ -446,10 +445,10 @@ different types of data its return type must be a custom type.
         { model | value = value }
 
 -}
-oneOf : List ( Int, Decoder a ) -> (a -> b -> b) -> FieldDecoder b
+oneOf : List ( Int, Decoder a ) -> (Maybe a -> b -> b) -> FieldDecoder b
 oneOf decoders set =
     decoders
-        |> List.map (Tuple.mapSecond (map set))
+        |> List.map (Tuple.mapSecond (map (set << Just)))
         |> FieldDecoder False
 
 

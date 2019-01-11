@@ -448,19 +448,18 @@ Or when encoding custom types:
 
     type alias FormValue =
         { key : String
-        , value : Value
+        , value : Maybe Value
         }
 
     type Value
         = StringValue String
         | IntValue Int
-        | NoValue
 
     encodeKeyValue : FormValue -> Encoder
     encodeKeyValue formValue =
         message
             [ ( 1, string formValue.key )
-            , encodeValue formValue.value
+            , Maybe.withDefault ( 0, none ) <| Maybe.map encodeValue formValue.value
             ]
 
     encodeValue : Value -> ( Int, Encoder )
@@ -471,9 +470,6 @@ Or when encoding custom types:
 
             IntValue value ->
                 ( 3, int32 value )
-
-            NoValue ->
-                ( 0, none )
 
 -}
 none : Encoder
