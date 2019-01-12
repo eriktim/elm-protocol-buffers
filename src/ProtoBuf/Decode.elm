@@ -75,7 +75,7 @@ import Set
 {-| Describes how to turn a sequence of ProtoBuf-encoded bytes into a nice Elm value.
 -}
 type Decoder a
-    = Decoder (WireType -> Decode.Decoder ( Int, List a ))
+    = Decoder (WireType -> Decode.Decoder ( Int, a ))
 
 
 {-| Describes how to decode a certain field in a ProtoBuf-encoded message and
@@ -185,7 +185,6 @@ decode (Decoder decoder) bs =
     in
     Decode.decode (decoder wireType) bs
         |> Maybe.map Tuple.second
-        |> Maybe.andThen List.head
 
 
 {-| Decode **all remaining bytes** into an record. The initial value given here
@@ -231,14 +230,13 @@ message v fieldDecoders =
         (\wireType ->
             case wireType of
                 LengthDelimited width ->
-                    Decode.map (Tuple.mapSecond List.singleton) <|
-                        Decode.loop
-                            { width = width
-                            , requiredFieldNumbers = requiredSet
-                            , dict = dict
-                            , model = v
-                            }
-                            (stepMessage width)
+                    Decode.loop
+                        { width = width
+                        , requiredFieldNumbers = requiredSet
+                        , dict = dict
+                        , model = v
+                        }
+                        (stepMessage width)
 
                 _ ->
                     Decode.fail
@@ -345,10 +343,18 @@ value.
 
 -}
 repeated : Int -> Decoder a -> (b -> List a) -> (List a -> b -> b) -> FieldDecoder b
-repeated fieldNumber decoder get set =
+repeated fieldNumber (Decoder decoder) get set =
     let
         listDecoder =
-            map List.singleton decoder
+            Decoder
+                (\wireType ->
+                    case wireType of
+                        LengthDelimited width ->
+                            Decode.loop ( width, [] ) (stepPackedField width (decoder wireType))
+
+                        _ ->
+                            Decode.fail
+                )
 
         update value model =
             set (get model ++ value) model
@@ -575,7 +581,7 @@ This is useful when encoding custom types as an enumeration:
 -}
 map : (a -> b) -> Decoder a -> Decoder b
 map fn (Decoder decoder) =
-    Decoder (\wireType -> Decode.map (Tuple.mapSecond (List.map fn)) (decoder wireType))
+    Decoder (\wireType -> Decode.map (Tuple.mapSecond fn) (decoder wireType))
 
 
 
@@ -664,12 +670,12 @@ stepMessage width state =
                     case Dict.get fieldNumber state.dict of
                         Just (Decoder decoder) ->
                             Decode.map
-                                (\( n, fns ) ->
+                                (\( n, fn ) ->
                                     Decode.Loop
                                         { state
                                             | width = state.width - usedBytes - n
                                             , requiredFieldNumbers = Set.remove fieldNumber state.requiredFieldNumbers
-                                            , model = List.foldl (<|) state.model fns
+                                            , model = fn state.model
                                         }
                                 )
                                 (decoder wireType)
@@ -733,7 +739,7 @@ lengthDelimitedDecoder decoder =
         (\wireType ->
             case wireType of
                 LengthDelimited width ->
-                    Decode.map (Tuple.pair width << List.singleton) (decoder width)
+                    Decode.map (Tuple.pair width) (decoder width)
 
                 _ ->
                     Decode.fail
@@ -745,12 +751,12 @@ packedDecoder decoderWireType decoder =
     Decoder
         (\wireType ->
             case wireType of
-                LengthDelimited width ->
-                    Decode.loop ( width, [] ) (stepPackedField width decoder)
+                LengthDelimited _ ->
+                    decoder
 
                 _ ->
                     if wireType == decoderWireType then
-                        Decode.map (Tuple.mapSecond List.singleton) decoder
+                        decoder
 
                     else
                         Decode.fail
@@ -759,11 +765,22 @@ packedDecoder decoderWireType decoder =
 
 stepPackedField : Int -> Decode.Decoder ( Int, a ) -> ( Int, List a ) -> Decode.Decoder (Decode.Step ( Int, List a ) ( Int, List a ))
 stepPackedField fullWidth decoder ( width, values ) =
-    if width <= 0 then
-        Decode.succeed (Decode.Done ( fullWidth, values ))
+    Decode.map
+        (\( w, value ) ->
+            let
+                bytesRemaining =
+                    width - w
 
-    else
-        Decode.map (\( w, value ) -> Decode.Loop ( width - w, values ++ [ value ] )) decoder
+                values_ =
+                    values ++ [ value ]
+            in
+            if bytesRemaining <= 0 then
+                Decode.Done ( fullWidth, values_ )
+
+            else
+                Decode.Loop ( bytesRemaining, values_ )
+        )
+        decoder
 
 
 unknownFieldDecoder : WireType -> Decode.Decoder Int
