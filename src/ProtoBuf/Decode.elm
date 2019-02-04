@@ -1,5 +1,5 @@
 module ProtoBuf.Decode exposing
-    ( Decoder, decode, FieldDecoder, message
+    ( Decoder, decode, expectBytes, FieldDecoder, message
     , required, optional, repeated, mapped, oneOf
     , int32, uint32, sint32, fixed32, sfixed32
     , double, float
@@ -15,7 +15,7 @@ module ProtoBuf.Decode exposing
 
 # Decoding
 
-@docs Decoder, decode, FieldDecoder, message
+@docs Decoder, decode, expectBytes, FieldDecoder, message
 
 
 # Field Decoders
@@ -64,6 +64,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
+import Http
 import Internal.ProtoBuf exposing (WireType(..))
 import Set
 
@@ -135,47 +136,6 @@ number of bytes.
     setName value model =
         { model | name = value }
 
-You probably received these `Bytes` from an HTTP request. As
-[`message`](#message) consumes **all remaing bytes** on the wire, you cannot
-use `Http.expectBytes` directly (as it does not provide the width of the bytes
-sequence). Hence, you might want to use the `expectBytes` as provided here.
-
-    import Http
-    import ProtoBuf.Decode as Decode
-
-    expectBytes : (Result Http.Error a -> msg) -> Decode.Decoder a -> Http.Expect msg
-    expectBytes toMsg decoder =
-        Http.expectBytesResponse toMsg
-            (\response ->
-                case response of
-                    Http.BadUrl_ url ->
-                        Err (Http.BadUrl url)
-
-                    Http.Timeout_ ->
-                        Err Http.Timeout
-
-                    Http.NetworkError_ ->
-                        Err Http.NetworkError
-
-                    Http.BadStatus_ metadata body ->
-                        Err (Http.BadStatus metadata.statusCode)
-
-                    Http.GoodStatus_ _ body ->
-                        case Decode.decode decoder body of
-                            Just value ->
-                                Ok value
-
-                            Nothing ->
-                                Err (Http.BadBody "Decoder error")
-            )
-
-    getPerson : (Result Http.Error a -> msg) -> Cmd msg
-    getPerson toMsg =
-        Http.get
-          { url = "https://example.com/person"
-          , expectBytes toMsg personDecoder
-          }
-
 -}
 decode : Decoder a -> Bytes -> Maybe a
 decode (Decoder decoder) bs =
@@ -185,6 +145,50 @@ decode (Decoder decoder) bs =
     in
     Decode.decode (decoder wireType) bs
         |> Maybe.map Tuple.second
+
+
+{-| Turn a [`Decoder`](#Decoder) into a `Http.Expect`. You probably received
+the `Bytes` you want to decode from an HTTP request. As [`message`](#message)
+consumes **all remaining bytes** on the wire, you cannot use `Http.expectBytes`
+directly (as it does not provide the width of the bytes sequence). Hence, you
+might want to use the `expectBytes` as provided by this package.
+
+    import Http
+    import ProtoBuf.Decode as Decode
+
+    getPerson : (Result Http.Error a -> msg) -> Cmd msg
+    getPerson toMsg =
+        Http.get
+          { url = "https://example.com/person"
+          , Decode.expectBytes toMsg personDecoder
+          }
+
+-}
+expectBytes : (Result Http.Error a -> msg) -> Decode.Decoder a -> Http.Expect msg
+expectBytes toMsg decoder =
+    Http.expectBytesResponse toMsg
+        (\response ->
+            case response of
+                Http.BadUrl_ url ->
+                    Err (Http.BadUrl url)
+
+                Http.Timeout_ ->
+                    Err Http.Timeout
+
+                Http.NetworkError_ ->
+                    Err Http.NetworkError
+
+                Http.BadStatus_ metadata body ->
+                    Err (Http.BadStatus metadata.statusCode)
+
+                Http.GoodStatus_ _ body ->
+                    case Decode.decode decoder body of
+                        Just value ->
+                            Ok value
+
+                        Nothing ->
+                            Err (Http.BadBody "ProtoBuf decoder error")
+        )
 
 
 {-| Decode **all remaining bytes** into an record. The initial value given here
