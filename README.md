@@ -100,26 +100,26 @@ type PhoneType
 -- ENCODE
 
 
-encodePerson : Person -> Encode.Encoder
-encodePerson person =
+toPersonEncoder : Person -> Encode.Encoder
+toPersonEncoder person =
     Encode.message
         [ ( 1, Encode.string person.name )
         , ( 2, Encode.int32 person.id )
         , ( 3, Encode.string person.email )
-        , ( 4, Encode.list encodePhoneNumber person.phone )
+        , ( 4, Encode.list toPhoneNumberEncoder person.phone )
         ]
 
 
-encodePhoneNumber : PhoneNumber -> Encode.Encoder
-encodePhoneNumber phoneNumber =
+toPhoneNumberEncoder : PhoneNumber -> Encode.Encoder
+toPhoneNumberEncoder phoneNumber =
     Encode.message
         [ ( 1, Encode.string phoneNumber.number )
-        , ( 2, encodePhoneType phoneNumber.type_ )
+        , ( 2, toPhoneTypeEncoder phoneNumber.type_ )
         ]
 
 
-encodePhoneType : PhoneType -> Encode.Encoder
-encodePhoneType phoneType =
+toPhoneTypeEncoder : PhoneType -> Encode.Encoder
+toPhoneTypeEncoder phoneType =
     case phoneType of
         Mobile ->
             Encode.int32 0

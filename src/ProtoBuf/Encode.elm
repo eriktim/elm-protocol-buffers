@@ -104,8 +104,8 @@ field it is decoding and to read the right number of `Bytes`.
         , name : String
         }
 
-    encodePerson : Person -> Encode.Encoder
-    encodePerson person =
+    toPersonEncoder : Person -> Encode.Encoder
+    toPersonEncoder person =
         Encode.message
             [ ( 1, Encode.uint32 person.age )
             , ( 2, Encode.string person.name )
@@ -158,8 +158,8 @@ encode encoder =
      foo =
         Foo 1.25 "hello" [ 1, 2, 3, 4, 5 ]
 
-     encode : Encoder
-     encode =
+     toEncoder : Encoder
+     toEncoder =
          message
              [ ( 1, double foo.a )         -- <09* 00 00 00 00 00 00 F4 3F
              , ( 2, string foo.b )         --  12* 05* 68 65 6C 6C 6F
@@ -171,7 +171,7 @@ message : List ( Int, Encoder ) -> Encoder
 message items =
     items
         |> List.sortBy Tuple.first
-        |> List.map encodeKeyValuePair
+        |> List.map toKeyValuePairEncoder
         |> sequence
         |> (\e -> Encoder (LengthDelimited (Tuple.first e)) e)
 
@@ -196,8 +196,8 @@ This function should also be used to encode custom types as enumeration:
         | Mango
         | Unrecognized Int
 
-    encodeFruit : Fruit -> Encoder
-    encodeFruit value =
+    toFruitEncoder : Fruit -> Encoder
+    toFruitEncoder value =
         Encode.int32 <|
             case value of
                 Apple ->
@@ -436,12 +436,12 @@ This can be useful when encoding embedded messages:
         , attachment : Maybe Attachment
         }
 
-    encodeReport : Report -> Encoder
-    encodeReport report =
+    toReportEncoder : Report -> Encoder
+    toReportEncoder report =
         message
             [ ( 1, string report.title )
             , ( 2, string report.contents )
-            , ( 3, Maybe.withDefault none <| Maybe.map encodeAttachment report.attachment )
+            , ( 3, Maybe.withDefault none <| Maybe.map toAttachmentEncoder report.attachment )
             ]
 
 Or when encoding custom types:
@@ -455,15 +455,15 @@ Or when encoding custom types:
         = StringValue String
         | IntValue Int
 
-    encodeKeyValue : FormValue -> Encoder
-    encodeKeyValue formValue =
+    toKeyValueEncoder : FormValue -> Encoder
+    toKeyValueEncoder formValue =
         message
             [ ( 1, string formValue.key )
-            , Maybe.withDefault ( 0, none ) <| Maybe.map encodeValue formValue.value
+            , Maybe.withDefault ( 0, none ) <| Maybe.map toValueEncoder formValue.value
             ]
 
-    encodeValue : Value -> ( Int, Encoder )
-    encodeValue value =
+    toValueEncoder : Value -> ( Int, Encoder )
+    toValueEncoder value =
         case value of
             StringValue value ->
                 ( 2, string value )
@@ -490,8 +490,8 @@ sequence items =
     ( width, Encode.sequence <| List.map Tuple.second items )
 
 
-encodeKeyValuePair : ( Int, Encoder ) -> ( Int, Encode.Encoder )
-encodeKeyValuePair ( fieldNumber, encoder ) =
+toKeyValuePairEncoder : ( Int, Encoder ) -> ( Int, Encode.Encoder )
+toKeyValuePairEncoder ( fieldNumber, encoder ) =
     case encoder of
         Encoder wireType encoder_ ->
             sequence
@@ -500,7 +500,7 @@ encodeKeyValuePair ( fieldNumber, encoder ) =
                 ]
 
         ListEncoder encoders ->
-            case packedEncoders encoders of
+            case toPackedEncoder encoders of
                 Just encoder_ ->
                     sequence
                         [ tag fieldNumber (LengthDelimited (Tuple.first encoder_))
@@ -508,14 +508,14 @@ encodeKeyValuePair ( fieldNumber, encoder ) =
                         ]
 
                 Nothing ->
-                    sequence <| List.map (encodeKeyValuePair << Tuple.pair fieldNumber) encoders
+                    sequence <| List.map (toKeyValuePairEncoder << Tuple.pair fieldNumber) encoders
 
         NoEncoder ->
             sequence []
 
 
-packedEncoders : List Encoder -> Maybe ( Int, Encode.Encoder )
-packedEncoders encoders =
+toPackedEncoder : List Encoder -> Maybe ( Int, Encode.Encoder )
+toPackedEncoder encoders =
     case encoders of
         (Encoder wireType encoder) :: others ->
             case wireType of
@@ -573,7 +573,7 @@ varInt : Int -> ( Int, Encode.Encoder )
 varInt value =
     let
         encoders =
-            varIntEncoders value
+            toVarIntEncoders value
     in
     ( List.length encoders, Encode.sequence encoders )
 
@@ -592,8 +592,8 @@ zigZag value =
     Bitwise.xor (Bitwise.shiftRightBy 31 value) (Bitwise.shiftLeftBy 1 value)
 
 
-varIntEncoders : Int -> List Encode.Encoder
-varIntEncoders value =
+toVarIntEncoders : Int -> List Encode.Encoder
+toVarIntEncoders value =
     let
         base128 =
             Bitwise.and 0x7F value
@@ -602,7 +602,7 @@ varIntEncoders value =
             Bitwise.shiftRightZfBy 7 value
     in
     if higherBits /= 0x00 then
-        Encode.unsignedInt8 (Bitwise.or 0x80 base128) :: varIntEncoders higherBits
+        Encode.unsignedInt8 (Bitwise.or 0x80 base128) :: toVarIntEncoders higherBits
 
     else
         [ Encode.unsignedInt8 base128 ]

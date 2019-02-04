@@ -54,15 +54,15 @@ suite =
                         |> Expect.equal (Just value)
             , fuzz2 fieldNumber enum "custom types without associated data" <|
                 \num value ->
-                    Encode.message [ ( num, enumEncoder value ) ]
+                    Encode.message [ ( num, toEnumEncoder value ) ]
                         |> Encode.encode
                         |> Decode.decode (Decode.message EnumA [ Decode.required num enumDecoder updateSelf ])
                         |> Expect.equal (Just value)
-            , fuzz oneOf "custom types with associated data" <|
+            , fuzz (maybe oneOf) "custom types with associated data" <|
                 \value ->
-                    Encode.message [ oneOfEncoder value ]
+                    Encode.message [ Maybe.withDefault ( 0, Encode.none ) <| Maybe.map toOneOfEncoder value ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message None [ Decode.oneOf oneOfDecoders updateSelf ])
+                        |> Decode.decode (Decode.message Nothing [ Decode.oneOf oneOfDecoders updateSelf ])
                         |> Expect.equal (Just value)
             ]
         , describe "protocol buffer"
@@ -80,7 +80,7 @@ suite =
                         |> Expect.equal (Just default)
             , fuzz message "messages" <|
                 \value ->
-                    messageEncoder value
+                    toMessageEncoder value
                         |> Encode.encode
                         |> Decode.decode messageDecoder
                         |> Expect.equal (Just value)
@@ -162,8 +162,8 @@ enumType value =
             Unrecognized v
 
 
-enumEncoder : Enum -> Encode.Encoder
-enumEncoder value =
+toEnumEncoder : Enum -> Encode.Encoder
+toEnumEncoder value =
     Encode.int32 <|
         case value of
             EnumA ->
@@ -192,7 +192,6 @@ type OneOf
     = String String
     | Int32 Int
     | Double Float
-    | None
 
 
 oneOf : Fuzzer OneOf
@@ -201,13 +200,11 @@ oneOf =
         [ Fuzz.map String string
         , Fuzz.map Int32 int32
         , Fuzz.map Double float
-        , Fuzz.constant None
         ]
 
 
-oneOfEncoder : OneOf -> ( Int, Encode.Encoder )
-oneOfEncoder value =
-    -- TODO this doesn't feel smooth
+toOneOfEncoder : OneOf -> ( Int, Encode.Encoder )
+toOneOfEncoder value =
     case value of
         String v ->
             ( 1, Encode.string v )
@@ -217,9 +214,6 @@ oneOfEncoder value =
 
         Double v ->
             ( 3, Encode.double v )
-
-        None ->
-            ( 0, Encode.none )
 
 
 oneOfDecoders : List ( Int, Decode.Decoder OneOf )
@@ -257,17 +251,17 @@ listMessage =
     Fuzz.map2 ListMessage (list string) (list int32)
 
 
-messageEncoder : Message -> Encode.Encoder
-messageEncoder value =
+toMessageEncoder : Message -> Encode.Encoder
+toMessageEncoder value =
     Encode.message
         [ ( 1, Encode.string value.string )
         , ( 2, Encode.double value.double )
-        , ( 3, Maybe.withDefault Encode.none <| Maybe.map listMessageEncoder value.message )
+        , ( 3, Maybe.withDefault Encode.none <| Maybe.map toListMessageEncoder value.message )
         ]
 
 
-listMessageEncoder : ListMessage -> Encode.Encoder
-listMessageEncoder value =
+toListMessageEncoder : ListMessage -> Encode.Encoder
+toListMessageEncoder value =
     Encode.message
         [ ( 1, Encode.list Encode.string value.strings )
         , ( 2, Encode.list Encode.int32 value.int32s )

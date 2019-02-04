@@ -76,7 +76,7 @@ suite =
         , describe "lazy decoding"
             [ test "recursion" <|
                 \_ ->
-                    encodeComment commentValue
+                    toCommentEncoder commentValue
                         |> Encode.encode
                         |> Decode.decode commentDecoder
                         |> Expect.equal (Just commentValue)
@@ -127,11 +127,11 @@ unwrapResponses (Responses responses) =
     responses
 
 
-encodeComment : Comment -> Encode.Encoder
-encodeComment comment =
+toCommentEncoder : Comment -> Encode.Encoder
+toCommentEncoder comment =
     Encode.message
         [ ( 1, Encode.string comment.message )
-        , ( 2, (Encode.list encodeComment << unwrapResponses) comment.responses )
+        , ( 2, (Encode.list toCommentEncoder << unwrapResponses) comment.responses )
         ]
 
 
