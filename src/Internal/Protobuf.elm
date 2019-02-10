@@ -1,4 +1,4 @@
-module Internal.ProtoBuf exposing (WireType(..))
+module Internal.Protobuf exposing (WireType(..))
 
 
 type WireType

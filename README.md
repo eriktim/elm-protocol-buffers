@@ -1,10 +1,11 @@
 # Protocol Buffers [![Build Status](https://travis-ci.org/eriktim/elm-protocol-buffers.svg?branch=master)](https://travis-ci.org/eriktim/elm-protocol-buffers)
 
 This package lets you create encoders and decoders for (de)serializing data
-according to the [ProtoBuf](https://developers.google.com/protocol-buffers)
-method. Typically, **you should not use this package directly** as the required
-encoders and decoders can be generated directly from `.proto` specification
-files. However, that part is currently still under development.
+according to the [Protobuf](https://developers.google.com/protocol-buffers)
+specification. Typically, **you should not use this package directly** as the
+required encoders and decoders can be generated directly from `.proto`
+specification files, e.g. by using this
+[`protoc` plugin](https://www.npmjs.com/package/protoc-gen-elm).
 
 > Protocol buffers are Google's language-neutral, platform-neutral, extensible
 > mechanism for serializing structured data – think XML, but smaller, faster,
@@ -21,7 +22,7 @@ there are many ways to send information between clients and servers, like JSON,
 XML, GraphQL and the one this package provides: **Protocol Buffers**.
 
 Where Elm spoils us with an excellent type system, we lose this safety at the
-boundaries of our application, e.g. when talking to servers. ProtoBuf forces
+boundaries of our application, e.g. when talking to servers. Protobuf forces
 you to specify the interchange format explicity up front, making it
 **type-safe**. It also:
 
@@ -42,7 +43,7 @@ interesting next step.
 
 ## Extensive Example
 
-Given a ProtoBuf `.proto` file
+Given a Protobuf `.proto` file
 
 ```protobuf
 message Person {
@@ -68,8 +69,8 @@ message Person {
 this package handles converting between `Person` and `Bytes` values:
 
 ```elm
-import ProtoBuf.Decode as Decode
-import ProtoBuf.Encode as Encode
+import Protobuf.Decode as Decode
+import Protobuf.Encode as Encode
 
 
 
@@ -217,6 +218,12 @@ some limitations:
   for both integers and floats. Integers are only considered safe to use up to
   about 54 bits. Therefore all **64-bit integer variants are not supported** by
   this package.
+
+* The [**Well-Known
+  Types**](https://developers.google.com/protocol-buffers/docs/reference/google.protobuf)
+  are not yet part of this packages, as the current
+  [generator](https://www.npmjs.com/package/protoc-gen-elm) does not yet
+  work well with the recursive fields in that are found in some of the types.
 
 * Unknown fields are well-formed protocol buffer serialized data representing
   fields that the decoder does not recognize (for example when the field is

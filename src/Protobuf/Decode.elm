@@ -1,4 +1,4 @@
-module ProtoBuf.Decode exposing
+module Protobuf.Decode exposing
     ( Decoder, decode, expectBytes, FieldDecoder, message
     , required, optional, repeated, mapped, oneOf
     , int32, uint32, sint32, fixed32, sfixed32
@@ -10,7 +10,9 @@ module ProtoBuf.Decode exposing
     , lazy
     )
 
-{-| Library for turning [ProtoBuf](https://developers.google.com/protocol-buffers) messages into Elm values.
+{-| Library for turning
+[Protobuf](https://developers.google.com/protocol-buffers) messages into Elm
+values.
 
 
 # Decoding
@@ -65,7 +67,7 @@ import Bytes.Decode as Decode
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
 import Http
-import Internal.ProtoBuf exposing (WireType(..))
+import Internal.Protobuf exposing (WireType(..))
 import Set
 
 
@@ -73,13 +75,13 @@ import Set
 -- DECODER
 
 
-{-| Describes how to turn a sequence of ProtoBuf-encoded bytes into a nice Elm value.
+{-| Describes how to turn a sequence of Protobuf-encoded bytes into a nice Elm value.
 -}
 type Decoder a
     = Decoder (WireType -> Decode.Decoder ( Int, a ))
 
 
-{-| Describes how to decode a certain field in a ProtoBuf-encoded message and
+{-| Describes how to decode a certain field in a Protobuf-encoded message and
 how to update a record with the new Elm value.
 -}
 type FieldDecoder a
@@ -114,7 +116,7 @@ Values are always encoded together with a field number and their
 . This allows the decoder to set the right fields and to process the correct
 number of bytes.
 
-    import ProtoBuf.Decode as Decode
+    import Protobuf.Decode as Decode
 
     type alias Person =
         { age : Int
@@ -154,7 +156,7 @@ directly (as it does not provide the width of the bytes sequence). Hence, you
 might want to use the `expectBytes` as provided by this package.
 
     import Http
-    import ProtoBuf.Decode as Decode
+    import Protobuf.Decode as Decode
 
     getPerson : (Result Http.Error a -> msg) -> Cmd msg
     getPerson toMsg =
@@ -164,7 +166,7 @@ might want to use the `expectBytes` as provided by this package.
           }
 
 -}
-expectBytes : (Result Http.Error a -> msg) -> Decode.Decoder a -> Http.Expect msg
+expectBytes : (Result Http.Error a -> msg) -> Decoder a -> Http.Expect msg
 expectBytes toMsg decoder =
     Http.expectBytesResponse toMsg
         (\response ->
@@ -182,12 +184,12 @@ expectBytes toMsg decoder =
                     Err (Http.BadStatus metadata.statusCode)
 
                 Http.GoodStatus_ _ body ->
-                    case Decode.decode decoder body of
+                    case decode decoder body of
                         Just value ->
                             Ok value
 
                         Nothing ->
-                            Err (Http.BadBody "ProtoBuf decoder error")
+                            Err (Http.BadBody "Protobuf decoder error")
         )
 
 
@@ -197,7 +199,7 @@ provided field decoder calls a setter function to update the record when its
 field number is encountered on the bytes sequence. _Unknown fields_ that have
 no matching field decoder are currently being ignored.
 
-    import ProtoBuf.Decode as Decode
+    import Protobuf.Decode as Decode
 
     type alias Person =
         { name : String
@@ -286,7 +288,7 @@ required fieldNumber decoder set =
 
 {-| Decode an optional field.
 
-    import ProtoBuf.Decode as Decode
+    import Protobuf.Decode as Decode
 
     type alias Person =
         { age : Int -- field number 2
@@ -325,7 +327,7 @@ As repeated fields may occur multiple times in a bytes sequence, `repeated`
 also needs to get hold of the record's current value in order to append the new
 value.
 
-    import ProtoBuf.Decode as Decode
+    import Protobuf.Decode as Decode
 
     type alias Person =
         { names : List String -- field number 5
@@ -376,7 +378,7 @@ also needs to get hold of the record's current value in order to append the new
 value.
 
     import Dict exposing (Dict)
-    import ProtoBuf.Decode as Decode
+    import Protobuf.Decode as Decode
 
     type alias Administration =
         { persons : Dict Int String -- field number 6
@@ -413,7 +415,7 @@ mapped fieldNumber defaultTuple keyDecoder valueDecoder get set =
 {-| Decode one of some fields. As the decoder is capable of deserializing
 different types of data its return type must be a custom type.
 
-    import ProtoBuf.Decode as Decode
+    import Protobuf.Decode as Decode
 
     type alias FormValue =
         { key : String -- field number 7
@@ -608,7 +610,7 @@ comments. You must use `lazy`to make sure your decoder unrolls lazily.
             [ Decode.optional 1 Decode.string setMessage
             , Decode.repeated 2
                 (Decode.lazy (\_ -> commentDecoder))
-                (unwrapResponses <<. responses)
+                (unwrapResponses << .responses)
                 (setResponses << Responses)
             ]
 

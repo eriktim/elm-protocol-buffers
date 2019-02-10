@@ -5,7 +5,7 @@ import Dict
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer, int, list, string)
 import Hex
-import ProtoBuf.Encode as Encode
+import Protobuf.Encode as Encode
 import Test exposing (..)
 
 

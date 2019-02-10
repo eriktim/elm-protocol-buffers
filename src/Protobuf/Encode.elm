@@ -1,4 +1,4 @@
-module ProtoBuf.Encode exposing
+module Protobuf.Encode exposing
     ( encode, Encoder, message
     , int32, uint32, sint32, fixed32, sfixed32
     , double, float
@@ -10,15 +10,15 @@ module ProtoBuf.Encode exposing
     )
 
 {-| Library for turning Elm values into
-[ProtoBuf](https://developers.google.com/protocol-buffers) messages.
+[Protobuf](https://developers.google.com/protocol-buffers) messages.
 
 > The examples show `Bytes` values like this: `<3A* 05* 68 65 6C 6C 6F>`. The
-> `*` means the byte is ProtoBuf _metadata_. It does not contain any real
+> `*` means the byte is Protobuf _metadata_. It does not contain any real
 > value. Here `3A` means the next encoded field is a _length delimited_ value
 > for field number `7`. `05` is the length of the encoded value. Those five
 > bytes contain the string `hello`. Read
 > [this](https://developers.google.com/protocol-buffers/docs/encoding) if
-> you want to learn more about how ProtoBuf encoding works.
+> you want to learn more about how Protobuf encoding works.
 
 
 # Encoding
@@ -66,7 +66,7 @@ import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
-import Internal.ProtoBuf exposing (WireType(..))
+import Internal.Protobuf exposing (WireType(..))
 
 
 
@@ -74,7 +74,7 @@ import Internal.ProtoBuf exposing (WireType(..))
 
 
 {-| Describes how to generate a sequence of bytes according to the
-specification of ProtoBuf.
+specification of Protobuf.
 -}
 type Encoder
     = Encoder WireType ( Int, Encode.Encoder )
@@ -97,7 +97,7 @@ Values are encoded together with a field number and the
 conform the specification in a `.proto` file. This allows decoders to know what
 field it is decoding and to read the right number of `Bytes`.
 
-    import ProtoBuf.Encode as Encode
+    import Protobuf.Encode as Encode
 
     type alias Person =
         { age : Int
@@ -116,7 +116,7 @@ field it is decoding and to read the right number of `Bytes`.
 You probably want to send these `Bytes` in the body of an HTTP request:
 
     import Http
-    import ProtoBuf.Encode as Encode
+    import Protobuf.Encode as Encode
 
     postPerson : (Result Http.Error () -> msg) -> Person -> Cmd msg
     postPerson toMsg person =
@@ -367,7 +367,7 @@ bytes v =
 
 
 {-| Encode a list of values into a message.
-ProtoBuf support two kind of encodings:
+Protobuf support two kind of encodings:
 
      -- packed encoding
      encode
@@ -463,8 +463,8 @@ Or when encoding custom types:
             ]
 
     toValueEncoder : Value -> ( Int, Encoder )
-    toValueEncoder value =
-        case value of
+    toValueEncoder model =
+        case model of
             StringValue value ->
                 ( 2, string value )
 
