@@ -64,7 +64,6 @@ values.
 import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode
-import Bytes.Encode as Encode
 import Dict exposing (Dict)
 import Http
 import Internal.Protobuf exposing (WireType(..))
@@ -180,7 +179,7 @@ expectBytes toMsg decoder =
                 Http.NetworkError_ ->
                     Err Http.NetworkError
 
-                Http.BadStatus_ metadata body ->
+                Http.BadStatus_ metadata _ ->
                     Err (Http.BadStatus metadata.statusCode)
 
                 Http.GoodStatus_ _ body ->
