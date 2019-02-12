@@ -33,13 +33,11 @@ you to specify the interchange format explicity up front, making it
   your backend as well;
 * is Google's **_lingua franca_** for data.
 
-This package provides an API to help converting between Elm values and `Bytes`
-by implementing Protocol Buffers. Ultimately, nobody should be writing these
-encoders and decoders directly as the required code can be generated
-automatically from `.proto` files. This is still a _work-in-progress_.
-`elm-protocol-buffers` also opens the door to add support for the communication
-protocol [gRPC](https://grpc.io/docs/guides/index.html), which could be an
-interesting next step.
+This package provides an API to help converting between Elm values and bytes
+by implementing Protocol Buffers. `elm-protocol-buffers` also opens the door to
+add support for the communication protocol
+[gRPC](https://grpc.io/docs/guides/index.html), which could be an interesting
+next step.
 
 ## Extensive Example
 
@@ -208,7 +206,7 @@ setType value model =
     { model | type_ = value }
 ```
 
-## Known limitations
+## Known Limitations
 
 This packages aims to support both `proto2` and `proto3`. However, there are
 some limitations:
@@ -216,14 +214,14 @@ some limitations:
 * JavaScript uses 64-bit floating point
   [numbers](https://tc39.github.io/ecma262/#sec-ecmascript-language-types-number-type)
   for both integers and floats. Integers are only considered safe to use up to
-  about 54 bits. Therefore all **64-bit integer variants are not supported** by
+  about 54 bits. Therefore **all 64-bit integer variants are not supported** by
   this package.
 
 * The [**Well-Known
   Types**](https://developers.google.com/protocol-buffers/docs/reference/google.protobuf)
   are not yet part of this packages, as the current
   [generator](https://www.npmjs.com/package/protoc-gen-elm) does not yet
-  work well with the recursive fields in that are found in some of the types.
+  work well with the recursive fields that are found in some of the types.
 
 * Unknown fields are well-formed protocol buffer serialized data representing
   fields that the decoder does not recognize (for example when the field is

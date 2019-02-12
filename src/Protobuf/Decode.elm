@@ -75,6 +75,29 @@ import Set
 
 
 {-| Describes how to turn a sequence of Protobuf-encoded bytes into a nice Elm value.
+
+    import Protobuf.Decode as Decode
+
+    type alias Person =
+        { age : Int
+        , name : String
+        }
+
+    personDecoder : Decode.Decoder Person
+    personDecoder =
+        Decode.message (Person 0 "")
+            |> Decode.optional 1 Decode.int32 setAge
+            |> Decode.optional 2 Decode.string setName
+
+    -- SETTERS
+    setAge : a -> { b | age : a } -> { b | age : a }
+    setAge value model =
+        { model | age = value }
+
+    setName : a -> { b | name : a } -> { b | name : a }
+    setName value model =
+        { model | name = value }
+
 -}
 type Decoder a
     = Decoder (WireType -> Decode.Decoder ( Int, a ))
@@ -100,7 +123,7 @@ type FieldDecoder a
 The `Decoder` specifies exactly how this should happen. This process may fail
 if:
 
-  - a required field is not present;
+  - a required field is not present (`proto2` only);
   - there is a mismatch of the
     [_wire type_](https://developers.google.com/protocol-buffers/docs/encoding#structure)
     of the encoded value and the decoder;
@@ -114,28 +137,6 @@ Values are always encoded together with a field number and their
 [_wire type_](https://developers.google.com/protocol-buffers/docs/encoding#structure)
 . This allows the decoder to set the right fields and to process the correct
 number of bytes.
-
-    import Protobuf.Decode as Decode
-
-    type alias Person =
-        { age : Int
-        , name : String
-        }
-
-    personDecoder : Decode.Decoder Person
-    personDecoder =
-        Decode.message (Person 0 "")
-            |> Decode.optional 1 Decode.int32 setAge
-            |> Decode.optional 2 Decode.string setName
-
-    -- SETTERS
-    setAge : a -> { b | age : a } -> { b | age : a }
-    setAge value model =
-        { model | age = value }
-
-    setName : a -> { b | name : a } -> { b | name : a }
-    setName value model =
-        { model | name = value }
 
 -}
 decode : Decoder a -> Bytes -> Maybe a
@@ -151,7 +152,7 @@ decode (Decoder decoder) bs =
 {-| Turn a [`Decoder`](#Decoder) into a `Http.Expect`. You probably received
 the `Bytes` you want to decode from an HTTP request. As [`message`](#message)
 consumes **all remaining bytes** on the wire, you cannot use `Http.expectBytes`
-directly (as it does not provide the width of the bytes sequence). Hence, you
+directly (as it is not aware of the width of the bytes sequence). Hence, you
 might want to use the `expectBytes` as provided by this package.
 
     import Http
@@ -193,7 +194,7 @@ expectBytes toMsg decoder =
 
 
 {-| Decode **all remaining bytes** into an record. The initial value given here
-holds all default values. For `proto3` these cannot be overridden. Each
+holds all default values (which cannot be overridden for `proto3`). Each
 provided field decoder calls a setter function to update the record when its
 field number is encountered on the bytes sequence. _Unknown fields_ that have
 no matching field decoder are currently being ignored.
@@ -253,7 +254,8 @@ message v fieldDecoders =
 
 
 {-| Decode a required field. Decoding a message fails when one of its required
-fields is not present in the bytes sequence.
+fields is not present in the bytes sequence. Required fields are only supported
+in `proto2`.
 
     type alias Person =
         { age : Int -- field number 1
@@ -369,7 +371,7 @@ repeated fieldNumber (Decoder decoder) get set =
 
 {-| Decode a map field. If no such fields are present when decoding a message,
 the result will be an empty `Dict`. Note that you need to provide one decoder
-for the keys and another one for the values. Keys without a value or value
+for the keys and another one for the values. Keys without a value or values
 without a key stick to the provided defaults.
 
 As map fields may occur multiple times in a bytes sequence, `mapped`
@@ -580,7 +582,7 @@ This is useful when encoding custom types as an enumeration:
                 )
 
 `Unrecognized Int` is only used for values that are present but not known. For
-`proto2` decoding it is left out and unrecognized values are being ignored.
+`proto2` decoding it is left out and unrecognized values are left out.
 
 -}
 map : (a -> b) -> Decoder a -> Decoder b
@@ -627,7 +629,7 @@ comments. You must use `lazy`to make sure your decoder unrolls lazily.
         responses
 
 [Here](https://elm-lang.org/0.19.0/bad-recursion) you can read more about
-recursive data structures
+recursive data structures.
 
 -}
 lazy : (() -> Decoder a) -> Decoder a

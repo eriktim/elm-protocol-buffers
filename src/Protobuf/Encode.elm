@@ -15,8 +15,8 @@ module Protobuf.Encode exposing
 > The examples show `Bytes` values like this: `<3A* 05* 68 65 6C 6C 6F>`. The
 > `*` means the byte is Protobuf _metadata_. It does not contain any real
 > value. Here `3A` means the next encoded field is a _length delimited_ value
-> for field number `7`. `05` is the length of the encoded value. Those five
-> bytes contain the string `hello`. Read
+> for field number `7`. `05` is the number of bytes that was used to encode the
+> value that follows. Those five bytes contain the string `hello`. Read
 > [this](https://developers.google.com/protocol-buffers/docs/encoding) if
 > you want to learn more about how Protobuf encoding works.
 
@@ -188,7 +188,7 @@ field is likely to have negative values, use [`sint32`](#sint32) instead.
      encode (int32 100)  -- <64>
      encode (int32 -100) -- <FF FF FF FF FF FF FF 9C>
 
-This function should also be used to encode custom types as enumeration:
+This function can also be used to encode custom types as enumeration:
 
     type Fruit
         = Apple
@@ -370,24 +370,20 @@ bytes v =
 Protobuf support two kind of encodings:
 
      -- packed encoding
-     encode
-         (message
-             [ ( 1, list int32 [ 1, 2, 3 ] ) -- <0A* 03* 01 02 03>
-             ]
-         )
+     message
+         [ ( 1, list int32 [ 1, 2, 3 ] ) -- <0A* 03* 01 02 03>
+         ]
 
      -- non-packed encoding
-     encode
-         (message
-             [ ( 1
-               , list string
-                     [ "one"   -- <0A* 03* 6F 6E 65
-                     , "two"   --  0A* 03* 74 77 6F
-                     , "three" --  0A* 05* 74 68 72 65 65>
-                     ]
-               )
-             ]
-         )
+     message
+         [ ( 1
+           , list string
+                 [ "one"   -- <0A* 03* 6F 6E 65
+                 , "two"   --  0A* 03* 74 77 6F
+                 , "three" --  0A* 05* 74 68 72 65 65>
+                 ]
+           )
+         ]
 
 Packed encoding is preferred as it uses less bytes on the wire. `list` will
 automatically fall-back to non-packed encoding for non-scalar numeric types.
