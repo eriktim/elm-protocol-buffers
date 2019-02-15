@@ -5,6 +5,7 @@
     "license": "BSD-3-Clause",
     "version": "1.0.0",
     "exposed-modules": [
+        "Google.Protobuf",
         "Protobuf.Decode",
         "Protobuf.Encode"
     ],
