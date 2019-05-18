@@ -236,8 +236,9 @@ type alias Message =
 
 
 type alias ListMessage =
-    { strings : List String
-    , int32s : List Int
+    { nonPackable : List String
+    , packed : List Int
+    , notPacked : List Int
     }
 
 
@@ -248,7 +249,7 @@ message =
 
 listMessage : Fuzzer ListMessage
 listMessage =
-    Fuzz.map2 ListMessage (list string) (list int32)
+    Fuzz.map3 ListMessage (list string) (list int32) (list int32)
 
 
 toMessageEncoder : Message -> Encode.Encoder
@@ -262,10 +263,11 @@ toMessageEncoder value =
 
 toListMessageEncoder : ListMessage -> Encode.Encoder
 toListMessageEncoder value =
-    Encode.message
-        [ ( 1, Encode.list Encode.string value.strings )
-        , ( 2, Encode.list Encode.int32 value.int32s )
+    Encode.message <|
+        [ ( 1, Encode.list Encode.string value.nonPackable )
+        , ( 2, Encode.list Encode.int32 value.packed )
         ]
+            ++ List.map (Tuple.pair 3 << Encode.int32) value.notPacked
 
 
 messageDecoder : Decode.Decoder Message
@@ -279,9 +281,10 @@ messageDecoder =
 
 listMessageDecoder : Decode.Decoder ListMessage
 listMessageDecoder =
-    Decode.message (ListMessage [] [])
-        [ Decode.repeated 1 Decode.string .strings (\value model -> { model | strings = value })
-        , Decode.repeated 2 Decode.int32 .int32s (\value model -> { model | int32s = value })
+    Decode.message (ListMessage [] [] [])
+        [ Decode.repeated 1 Decode.string .nonPackable (\value model -> { model | nonPackable = value })
+        , Decode.repeated 2 Decode.int32 .packed (\value model -> { model | packed = value })
+        , Decode.repeated 3 Decode.int32 .notPacked (\value model -> { model | notPacked = value })
         ]
 
 

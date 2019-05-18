@@ -360,7 +360,7 @@ repeated fieldNumber (Decoder decoder) get set =
                             Decode.loop ( width, [] ) (stepPackedField width (decoder wireType))
 
                         _ ->
-                            Decode.fail
+                            Decode.map (Tuple.mapSecond List.singleton) (decoder wireType)
                 )
 
         update value model =
