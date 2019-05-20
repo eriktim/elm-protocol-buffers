@@ -3,7 +3,7 @@
     "name": "eriktim/elm-protocol-buffers",
     "summary": "An Elm implementation of the Protocol Buffers specification",
     "license": "BSD-3-Clause",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "exposed-modules": [
         "Protobuf.Decode",
         "Protobuf.Encode"
@@ -15,8 +15,8 @@
         "elm/http": "2.0.0 <= v < 3.0.0"
     },
     "test-dependencies": {
+        "elm/json": "1.1.2 <= v < 2.0.0",
         "elm-explorations/test": "1.2.0 <= v < 2.0.0",
-        "jxxcarlson/hex": "2.1.2 <= v < 3.0.0",
-        "elm/json": "1.1.2 <= v < 2.0.0"
+        "jxxcarlson/hex": "2.1.2 <= v < 3.0.0"
     }
 }
