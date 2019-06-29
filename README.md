@@ -217,18 +217,11 @@ some limitations:
   about 54 bits. Therefore **all 64-bit integer variants are not supported** by
   this package.
 
-* The [**Well-Known
-  Types**](https://developers.google.com/protocol-buffers/docs/reference/google.protobuf)
-  are not yet part of this packages, as the current
-  [generator](https://www.npmjs.com/package/protoc-gen-elm) does not yet
-  work well with the recursive fields that are found in some of the types.
-
 * Unknown fields are well-formed protocol buffer serialized data representing
   fields that the decoder does not recognize (for example when the field is
   removed from the `.proto` file but the server is not yet updated). Currently,
   these fields are ignored and hence are **lost when re-serializing messages**.
 
 * [extensions](https://developers.google.com/protocol-buffers/docs/proto#extensions)
-  and the [any](https://developers.google.com/protocol-buffers/docs/proto3#any)
-  type are currently **not supported**.
+  are currently **not supported**.
 
