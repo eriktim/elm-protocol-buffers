@@ -3,7 +3,7 @@
     "name": "eriktim/elm-protocol-buffers",
     "summary": "An Elm implementation of the Protocol Buffers specification",
     "license": "BSD-3-Clause",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "exposed-modules": [
         "Google.Protobuf",
         "Protobuf.Decode",
