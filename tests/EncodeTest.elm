@@ -1,4 +1,4 @@
-module Encode exposing (suite)
+module EncodeTest exposing (suite)
 
 import Bytes.Encode
 import Dict
