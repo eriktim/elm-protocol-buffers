@@ -1,4 +1,4 @@
-module Message exposing (suite)
+module MessageTest exposing (suite)
 
 import Bytes
 import Bytes.Decode
@@ -10,40 +10,41 @@ import Hex
 import Protobuf.Decode as Decode
 import Protobuf.Encode as Encode
 import Test exposing (..)
+import Util exposing (..)
 
 
 suite : Test
 suite =
-    describe "Should successfully transmit"
+    describe "Should successfully serialize and deserialize"
         [ describe "all integers"
             [ fuzz int32 "integers" <|
-                transmit Encode.int32 Decode.int32
+                expectMessage Encode.int32 Decode.int32
             , fuzz uint32 "unsigned integers" <|
-                transmit Encode.uint32 Decode.uint32
+                expectMessage Encode.uint32 Decode.uint32
             , fuzz int32 "zig-zag encoded integers" <|
-                transmit Encode.sint32 Decode.sint32
+                expectMessage Encode.sint32 Decode.sint32
             , fuzz uint32 "fixed-size unsigned integers" <|
-                transmit Encode.fixed32 Decode.fixed32
+                expectMessage Encode.fixed32 Decode.fixed32
             , fuzz int32 "fixed-size integers" <|
-                transmit Encode.sfixed32 Decode.sfixed32
+                expectMessage Encode.sfixed32 Decode.sfixed32
             ]
         , describe "all floats"
             [ fuzz float "doubles" <|
-                transmit Encode.double Decode.double
+                expectMessage Encode.double Decode.double
             , fuzz float32 "floats" <|
-                transmit Encode.float Decode.float
+                expectMessage Encode.float Decode.float
             ]
         , describe "all strings"
             [ fuzz string "strings" <|
-                transmit Encode.string Decode.string
+                expectMessage Encode.string Decode.string
             ]
         , describe "all booleans"
             [ fuzz bool "booleans" <|
-                transmit Encode.bool Decode.bool
+                expectMessage Encode.bool Decode.bool
             ]
         , describe "all bytes"
             [ fuzz bytes "bytes" <|
-                transmit Encode.bytes Decode.bytes
+                expectMessage Encode.bytes Decode.bytes
             ]
         , describe "data structures"
             [ fuzz2 fieldNumber (dict int32 string) "dicts" <|
@@ -86,48 +87,6 @@ suite =
                         |> Expect.equal (Just value)
             ]
         ]
-
-
-
--- FUZZERS
-
-
-fieldNumber : Fuzzer Int
-fieldNumber =
-    Fuzz.intRange 1 (2 ^ 29 - 1)
-
-
-int32 : Fuzzer Int
-int32 =
-    Fuzz.intRange (-2 ^ 31) (2 ^ 31 - 1)
-
-
-uint32 : Fuzzer Int
-uint32 =
-    -- max `Fuzz.int` is only `2 ^ 31 - 1`
-    Fuzz.floatRange 0 (2 ^ 32 - 1)
-        |> Fuzz.map round
-
-
-float32 : Fuzzer Float
-float32 =
-    Fuzz.map
-        (\v ->
-            Bytes.Encode.encode (Bytes.Encode.float32 Bytes.LE v)
-                |> Bytes.Decode.decode (Bytes.Decode.float32 Bytes.LE)
-                |> Maybe.withDefault v
-        )
-        float
-
-
-bytes : Fuzzer Bytes.Bytes
-bytes =
-    Fuzz.map (Bytes.Encode.encode << Bytes.Encode.sequence << List.map (Bytes.Encode.signedInt32 Bytes.LE)) (list int32)
-
-
-dict : Fuzzer comparable -> Fuzzer v -> Fuzzer (Dict comparable v)
-dict k v =
-    Fuzz.map2 (\ks vs -> Dict.fromList <| List.map2 Tuple.pair ks vs) (list k) (list v)
 
 
 
@@ -289,14 +248,7 @@ listMessageDecoder =
 
 
 
--- TRANSMIT
-
-
-transmit : (a -> Encode.Encoder) -> Decode.Decoder a -> a -> Expectation
-transmit encoder decoder value =
-    Encode.encode (encoder value)
-        |> Decode.decode decoder
-        |> Expect.equal (Just value)
+-- HELPERS
 
 
 updateSelf : a -> a -> a

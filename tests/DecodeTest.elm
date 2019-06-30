@@ -1,4 +1,4 @@
-module Decode exposing (suite)
+module DecodeTest exposing (suite)
 
 import Dict
 import Expect exposing (Expectation)
