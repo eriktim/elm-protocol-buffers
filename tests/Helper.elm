@@ -1,4 +1,4 @@
-module Util exposing (bytes, dict, expectMessage, fieldNumber, float32, int32, uint32)
+module Helper exposing (bytes, dict, emptyBytes, expectSymmetric, fieldNumber, float32, int32, singleField, uint32)
 
 import Bytes
 import Bytes.Decode
@@ -6,12 +6,12 @@ import Bytes.Encode
 import Dict exposing (Dict)
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer, bool, float, int, list, maybe, string)
-import Protobuf.Decode as Decode
-import Protobuf.Encode as Encode
+import Protobuf.Codec as Codec
+import Protobuf.Message as Message
 
 
 
--- FUZZER
+-- FUZZERS
 
 
 fieldNumber : Fuzzer Int
@@ -53,11 +53,24 @@ dict k v =
 
 
 
--- EXPECT
+-- HELPERS
 
 
-expectMessage : (a -> Encode.Encoder) -> Decode.Decoder a -> a -> Expectation
-expectMessage encoder decoder message =
-    Encode.encode (encoder message)
-        |> Decode.decode decoder
-        |> Expect.equal (Just message)
+expectSymmetric : Codec.Codec (Message.Message a) -> a -> Expectation
+expectSymmetric codec value =
+    Codec.encode codec (Message.init value)
+        |> Codec.decode codec
+        |> Maybe.map (Message.view identity)
+        |> Expect.equal (Just value)
+
+
+singleField : Codec.Codec a -> Codec.Codec (Message.Message a)
+singleField codec =
+    Codec.builder identity
+        |> Codec.required 1 codec identity
+        |> Codec.build
+
+
+emptyBytes : Bytes.Bytes
+emptyBytes =
+    Bytes.Encode.encode (Bytes.Encode.sequence [])

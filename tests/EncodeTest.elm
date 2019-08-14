@@ -1,11 +1,12 @@
 module EncodeTest exposing (suite)
 
-import Bytes.Encode
 import Dict
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer, int, list, string)
+import Helper exposing (..)
 import Hex
-import Protobuf.Encode as Encode
+import Protobuf.Codec as Codec
+import Protobuf.Message as Message
 import Test exposing (..)
 
 
@@ -13,84 +14,130 @@ suite : Test
 suite =
     describe "Should correctly encode"
         [ describe "integers"
-            [ Encode.message [ ( 1, Encode.int32 64 ) ]
-                |> expectBytes "0840"
-                |> test "an int32"
-            , Encode.message [ ( 1, Encode.int32 -64 ) ]
-                |> expectBytes "08C0FFFFFF0F"
-                |> test "a negative int32"
-            , Encode.message [ ( 1, Encode.uint32 (2 ^ 32 - 1) ) ]
-                |> expectBytes "08FFFFFFFF0F"
-                |> test "an uint32"
-            , Encode.message [ ( 1, Encode.sint32 64 ) ]
-                |> expectBytes "088001"
-                |> test "a sint32"
-            , Encode.message [ ( 1, Encode.sint32 -64 ) ]
-                |> expectBytes "087F"
-                |> test "a negative sint32"
-            , Encode.message [ ( 1, Encode.fixed32 (2 ^ 32 - 1) ) ]
-                |> expectBytes "0DFFFFFFFF"
-                |> test "a fixed32"
-            , Encode.message [ ( 1, Encode.sfixed32 64 ) ]
-                |> expectBytes "0D40000000"
-                |> test "a sfixed32"
-            , Encode.message [ ( 1, Encode.sfixed32 -64 ) ]
-                |> expectBytes "0DC0FFFFFF"
-                |> test "a negative sfixed32"
+            [ test "an int32" <|
+                expectBytes (singleField Codec.int32) 64 "0840"
+            , test "a negative int32" <|
+                expectBytes (singleField Codec.int32) -64 "08C0FFFFFF0F"
+            , test "an uint32" <|
+                expectBytes (singleField Codec.uint32) (2 ^ 32 - 1) "08FFFFFFFF0F"
+            , test "a sint32" <|
+                expectBytes (singleField Codec.sint32) 64 "088001"
+            , test "a negative sint32" <|
+                expectBytes (singleField Codec.sint32) -64 "087F"
+            , test "a fixed32" <|
+                expectBytes (singleField Codec.fixed32) (2 ^ 32 - 1) "0DFFFFFFFF"
+            , test "a sfixed32" <|
+                expectBytes (singleField Codec.sfixed32) 64 "0D40000000"
+            , test "a negative sfixed32" <|
+                expectBytes (singleField Codec.sfixed32) -64 "0DC0FFFFFF"
             ]
         , describe "floats"
-            [ Encode.message [ ( 1, Encode.double 0.01 ) ]
-                |> expectBytes "097B14AE47E17A843F"
-                |> test "a double"
-            , Encode.message [ ( 1, Encode.float 0.01 ) ]
-                |> expectBytes "0D0AD7233C"
-                |> test "a float"
+            [ test "a double" <|
+                expectBytes (singleField Codec.double) 0.01 "097B14AE47E17A843F"
+            , test "a float" <|
+                expectBytes (singleField Codec.float) 0.01 "0D0AD7233C"
             ]
         , describe "strings"
-            [ Encode.message [ ( 2, Encode.string "testing" ) ]
-                |> expectBytes "120774657374696E67"
-                |> test "a string"
+            [ test "a string" <|
+                expectBytes
+                    (Codec.builder identity
+                        |> Codec.required 2 Codec.string identity
+                        |> Codec.build
+                    )
+                    "testing"
+                    "120774657374696E67"
             ]
         , describe "booleans"
-            [ Encode.message [ ( 1, Encode.bool True ) ]
-                |> expectBytes "0801"
-                |> test "a boolean"
+            [ test "a boolean" <|
+                expectBytes (singleField Codec.bool) True "0801"
             ]
         , describe "bytes"
-            [ Hex.toBytes "ABCDEF"
-                |> Maybe.withDefault (Bytes.Encode.encode (Bytes.Encode.sequence []))
-                |> Encode.bytes
-                |> Tuple.pair 5
-                |> List.singleton
-                |> Encode.message
-                |> expectBytes "2A03ABCDEF"
-                |> test "some bytes"
+            [ test "some bytes" <|
+                -- FIXME was field 5
+                expectBytes
+                    (Codec.builder identity
+                        |> Codec.required 5 Codec.bytes identity
+                        |> Codec.build
+                    )
+                    (Maybe.withDefault emptyBytes <| Hex.toBytes "ABCDEF")
+                    "2A03ABCDEF"
             ]
         , describe "data structures"
-            [ Encode.message [ ( 4, Encode.list Encode.int32 [ 3, 270, 86942 ] ) ]
-                |> expectBytes "2206038E029EA705"
-                |> test "a packed list"
-            , Encode.message [ ( 5, Encode.list Encode.string [ "foo", "bar" ] ) ]
-                |> expectBytes "2A03666F6F2A03626172"
-                |> test "a non-packed list"
-            , Encode.message [ ( 6, Encode.list Encode.string [] ) ]
-                |> expectBytes ""
-                |> test "an empty list"
-            , Encode.message [ ( 7, Encode.dict Encode.int32 Encode.string (Dict.fromList [ ( 1, "foo" ), ( 2, "bar" ) ]) ) ]
-                |> expectBytes "3A0708011203666F6F3A0708021203626172"
-                |> test "a dict"
+            [ test "a packed list" <|
+                expectBytes
+                    (Codec.builder identity
+                        |> Codec.repeated 4 Codec.int32 identity
+                        |> Codec.build
+                    )
+                    [ 3, 270, 86942 ]
+                    "2206038E029EA705"
+            , test "a non-packed list" <|
+                expectBytes
+                    (Codec.builder identity
+                        |> Codec.repeated 5 Codec.string identity
+                        |> Codec.build
+                    )
+                    [ "foo", "bar" ]
+                    "2A03666F6F2A03626172"
+            , test "an empty list" <|
+                expectBytes
+                    (Codec.builder identity
+                        |> Codec.repeated 6 Codec.string identity
+                        |> Codec.build
+                    )
+                    []
+                    ""
+            , test "a dict" <|
+                expectBytes
+                    (Codec.builder identity
+                        |> Codec.map 7 Codec.int32 Codec.string identity
+                        |> Codec.build
+                    )
+                    (Dict.fromList [ ( 1, "foo" ), ( 2, "bar" ) ])
+                    "3A0708011203666F6F3A0708021203626172"
             ]
         , describe "protocol buffers"
-            [ Encode.message [ ( 2 ^ 29 - 1, Encode.int32 1 ) ]
-                |> expectBytes "F8FFFFFF0F01"
-                |> test "field numbers"
-            , Encode.message [ ( 3, Encode.message [ ( 1, Encode.int32 150 ) ] ) ]
-                |> expectBytes "1A03089601"
-                |> test "an embedded message"
+            [ test "field numbers" <|
+                expectBytes
+                    (Codec.builder identity
+                        |> Codec.required (2 ^ 29 - 1) Codec.int32 identity
+                        |> Codec.build
+                    )
+                    1
+                    "F8FFFFFF0F01"
+            , test "an embedded message" <|
+                expectBytes
+                    (Codec.builder identity
+                        |> Codec.required 3
+                            (Codec.builder identity
+                                |> Codec.required 1 Codec.int32 identity
+                                |> Codec.build
+                            )
+                            identity
+                        |> Codec.build
+                    )
+                    (Message.init 150)
+                    "1A03089601"
+            , test "a default value" <|
+                expectBytes
+                    (Codec.builder identity
+                        |> Codec.field 1 Codec.int32 identity
+                        |> Codec.build
+                    )
+                    0
+                    ""
+            , test "a non-default value" <|
+                expectBytes
+                    (Codec.builder identity
+                        |> Codec.field 1 Codec.int32 identity
+                        |> Codec.build
+                    )
+                    100
+                    "0864"
             ]
         ]
 
 
-expectBytes : String -> Encode.Encoder -> () -> Expectation
-expectBytes hex encoder _ =
-    Expect.equal (Hex.fromBytes <| Encode.encode encoder) hex
+expectBytes : Codec.Codec (Message.Message a) -> a -> String -> () -> Expectation
+expectBytes codec value hex =
+    \_ -> Expect.equal (Hex.fromBytes <| Codec.encode codec (Message.init value)) hex

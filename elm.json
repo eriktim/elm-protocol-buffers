@@ -6,8 +6,8 @@
     "version": "1.1.0",
     "exposed-modules": [
         "Google.Protobuf",
-        "Protobuf.Decode",
-        "Protobuf.Encode"
+        "Protobuf.Codec",
+        "Protobuf.Message"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {
