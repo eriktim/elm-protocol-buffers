@@ -217,11 +217,6 @@ some limitations:
   about 54 bits. Therefore **all 64-bit integer variants are not supported** by
   this package.
 
-* Unknown fields are well-formed protocol buffer serialized data representing
-  fields that the decoder does not recognize (for example when the field is
-  removed from the `.proto` file but the server is not yet updated). Currently,
-  these fields are ignored and hence are **lost when re-serializing messages**.
-
 * [extensions](https://developers.google.com/protocol-buffers/docs/proto#extensions)
   are currently **not supported**.
 

@@ -81,6 +81,7 @@ import Internal.Protobuf as Protobuf exposing (..)
 import Set
 
 
+{-| -}
 type Codec a
     = Codec
         { default : Default a
@@ -114,16 +115,19 @@ invmapDefault ab ba d =
             NoDefault
 
 
+{-| -}
 decode : Codec a -> Bytes.Bytes -> Maybe a
 decode (Codec { decoder }) bs =
     Decode.decode decoder bs
 
 
+{-| -}
 encode : Codec a -> a -> Bytes.Bytes
 encode (Codec { encoder }) value =
     Encode.encode (encoder value)
 
 
+{-| -}
 type CodecBuilder f a
     = CodecBuilder
         { decoder : Decode.Decoder (Protobuf.Message f)
@@ -131,10 +135,12 @@ type CodecBuilder f a
         }
 
 
+{-| -}
 type alias FieldEncoder =
     Encode.FieldEncoder
 
 
+{-| -}
 builder : f -> CodecBuilder f a
 builder f =
     CodecBuilder
@@ -143,6 +149,7 @@ builder f =
         }
 
 
+{-| -}
 build : CodecBuilder a a -> Codec (Protobuf.Message a)
 build (CodecBuilder c) =
     buildCodec NoDefault
@@ -168,6 +175,7 @@ fieldCodec fieldDecoder fieldEncoder getter (CodecBuilder cb) =
         }
 
 
+{-| -}
 field : Int -> Codec v -> (a -> v) -> CodecBuilder (v -> f) a -> CodecBuilder f a
 field fieldNumber (Codec c) getter =
     let
@@ -192,6 +200,7 @@ field fieldNumber (Codec c) getter =
         maybeGetter
 
 
+{-| -}
 optional : Int -> Codec v -> (a -> v) -> Maybe v -> CodecBuilder (v -> f) a -> CodecBuilder f a
 optional fieldNumber (Codec c) getter maybeDefault =
     fieldCodec
@@ -200,6 +209,7 @@ optional fieldNumber (Codec c) getter maybeDefault =
         (Just << getter)
 
 
+{-| -}
 required : Int -> Codec v -> (a -> v) -> CodecBuilder (v -> f) a -> CodecBuilder f a
 required fieldNumber (Codec c) getter =
     fieldCodec
@@ -208,6 +218,7 @@ required fieldNumber (Codec c) getter =
         (Just << getter)
 
 
+{-| -}
 repeated : Int -> Codec v -> (a -> List v) -> CodecBuilder (List v -> f) a -> CodecBuilder f a
 repeated fieldNumber (Codec c) getter =
     fieldCodec
@@ -216,6 +227,7 @@ repeated fieldNumber (Codec c) getter =
         (Just << getter)
 
 
+{-| -}
 repeatedInefficiently : Int -> Codec v -> (a -> List v) -> CodecBuilder (List v -> f) a -> CodecBuilder f a
 repeatedInefficiently fieldNumber (Codec c) getter =
     fieldCodec
@@ -224,6 +236,7 @@ repeatedInefficiently fieldNumber (Codec c) getter =
         (Just << getter)
 
 
+{-| -}
 map : Int -> Codec comparable -> Codec v -> (a -> Dict.Dict comparable v) -> CodecBuilder (Dict.Dict comparable v -> f) a -> CodecBuilder f a
 map fieldNumber (Codec ck) (Codec cv) getter =
     let
@@ -249,6 +262,7 @@ map fieldNumber (Codec ck) (Codec cv) getter =
         (Just << getter)
 
 
+{-| -}
 oneof : OneofCodec v -> (a -> Maybe v) -> CodecBuilder (Maybe v -> f) a -> CodecBuilder f a
 oneof (OneofCodec c) getter =
     fieldCodec
@@ -257,6 +271,7 @@ oneof (OneofCodec c) getter =
         (Just << getter)
 
 
+{-| -}
 type OneofCodec a
     = OneofCodec
         { decoders : List ( Int, Decode.Decoder a )
@@ -264,6 +279,7 @@ type OneofCodec a
         }
 
 
+{-| -}
 type OneofCodecBuilder oneofEncoder a
     = OneofCodecBuilder
         { decoders : List ( Int, Decode.Decoder a )
@@ -271,6 +287,7 @@ type OneofCodecBuilder oneofEncoder a
         }
 
 
+{-| -}
 oneofBuilder : oneofEncoder -> OneofCodecBuilder oneofEncoder a
 oneofBuilder encoder =
     OneofCodecBuilder
@@ -279,6 +296,7 @@ oneofBuilder encoder =
         }
 
 
+{-| -}
 buildOneof : OneofCodecBuilder (a -> FieldEncoder) a -> OneofCodec a
 buildOneof (OneofCodecBuilder cb) =
     OneofCodec
@@ -287,6 +305,7 @@ buildOneof (OneofCodecBuilder cb) =
         }
 
 
+{-| -}
 oneofField : Int -> (v -> a) -> Codec v -> OneofCodecBuilder ((v -> FieldEncoder) -> oneofEncoder) a -> OneofCodecBuilder oneofEncoder a
 oneofField fieldNumber fn (Codec c) (OneofCodecBuilder cb) =
     OneofCodecBuilder
@@ -295,6 +314,7 @@ oneofField fieldNumber fn (Codec c) (OneofCodecBuilder cb) =
         }
 
 
+{-| -}
 lazy : (() -> Codec a) -> Codec a
 lazy delayed =
     buildCodec NoDefault
@@ -312,6 +332,7 @@ lazy delayed =
         )
 
 
+{-| -}
 maybe : Codec a -> Codec (Maybe a)
 maybe (Codec c) =
     buildCodec (Default Nothing (always False))
@@ -326,6 +347,7 @@ maybe (Codec c) =
         )
 
 
+{-| -}
 invmap : (a -> b) -> (b -> a) -> Codec a -> Codec b
 invmap ab ba (Codec c) =
     buildCodec
@@ -334,54 +356,130 @@ invmap ab ba (Codec c) =
         (c.encoder << ba)
 
 
+{-| Codec for integers from `-2147483648` to `2147483647`. Uses
+variable-length encoding. Inefficient for encoding negative numbers – if your
+field is likely to have negative values, use [`sint32`](#sint32) instead.
+
+     0    -- <00>
+     100  -- <64>
+     -100 -- <FF FF FF FF FF FF FF 9C>
+
+-}
 int32 : Codec Int
 int32 =
     buildCodec (default 0) Decode.int32 Encode.int32
 
 
-sint32 : Codec Int
-sint32 =
-    buildCodec (default 0) Decode.sint32 Encode.sint32
+{-| Codec for integers from `0` to `4294967295`.
+Uses variable-length encoding.
 
+     0   -- <00>
+     100 -- <64>
 
+-}
 uint32 : Codec Int
 uint32 =
     buildCodec (default 0) Decode.uint32 Encode.uint32
 
 
+{-| Codec for integers from `-2147483648` to `2147483647`. Uses
+variable-length encoding. These encoder encodes negative numbers more
+efficiently than [`int32`](#int32).
+
+     0    -- <00>
+     100  -- <C8 01>
+     -100 -- <C7 01>
+
+-}
+sint32 : Codec Int
+sint32 =
+    buildCodec (default 0) Decode.sint32 Encode.sint32
+
+
+{-| Codec for integers from `0` to `4294967295`. Always four bytes.
+More efficient than [`uint32`](#uint32) if values are often greater than
+`268435456`.
+
+     0   -- <00 00 00 00>
+     100 -- <64 00 00 00>
+
+-}
 fixed32 : Codec Int
 fixed32 =
     buildCodec (default 0) Decode.fixed32 Encode.fixed32
 
 
+{-| Codec for integers from `-2147483648` to `2147483647`.
+Always four bytes.
+
+     0    -- <00 00 00 00>
+     100  -- <64 00 00 00>
+     -100 -- <9C FF FF FF>
+
+-}
 sfixed32 : Codec Int
 sfixed32 =
     buildCodec (default 0) Decode.sfixed32 Encode.sfixed32
 
 
+{-| Codec for 64-bit floating point numbers.
+
+     0    -- <00 00 00 00 00 00 00 00>
+     100  -- <00 00 00 00 00 00 59 40>
+     -100 -- <00 00 00 00 00 00 59 C0>
+
+-}
+double : Codec Float
+double =
+    buildCodec (default 0) Decode.double Encode.double
+
+
+{-| Codec for 32-bit floating point numbers.
+The value may lose some precision by encoding it as a float.
+
+    0    -- <00 00 00 00>
+    100  -- <00 00 C8 42>
+    -100 -- <00 00 C8 C2>
+
+-}
+float : Codec Float
+float =
+    buildCodec (default 0) Decode.float Encode.float
+
+
+{-| Codec for strings.
+
+     "$20"   -- <24 32 30>
+     "£20"   -- <C2 A3 32 30>
+     "€20"   -- <E2 82 AC 32 30>
+     "bread" -- <62 72 65 61 64>
+     "brød"  -- <62 72 C3 B8 64>
+
+-}
+string : Codec String
+string =
+    buildCodec (default "") Decode.string Encode.string
+
+
+{-| Codec for booleans.
+
+     False -- <00>
+     True  -- <01>
+
+-}
 bool : Codec Bool
 bool =
     buildCodec (default False) Decode.bool Encode.bool
 
 
+{-| Codec for raw bytes.
+
+     Hex.toBytes "010203" -- <01 02 03>
+
+-}
 bytes : Codec Bytes.Bytes
 bytes =
     buildCodec
         (Default emptyBytes ((==) 0 << Bytes.width))
         Decode.bytes
         Encode.bytes
-
-
-double : Codec Float
-double =
-    buildCodec (default 0) Decode.double Encode.double
-
-
-float : Codec Float
-float =
-    buildCodec (default 0) Decode.float Encode.float
-
-
-string : Codec String
-string =
-    buildCodec (default "") Decode.string Encode.string
