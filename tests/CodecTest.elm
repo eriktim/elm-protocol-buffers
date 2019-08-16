@@ -49,9 +49,34 @@ suite =
         , describe "data structures"
             [ fuzz (dict int32 string) "dictionaries" <|
                 expectSymmetric mapCodec
-            , fuzz enum "custom types without associated data" <|
-                expectSymmetric (singleField enumCodec)
-            , fuzz (maybe oneOf) "custom types with associated data" <|
+            , fuzz (maybe enum) "enum" <|
+                \v ->
+                    let
+                        codec =
+                            Codec.builder identity
+                                |> Codec.field 1 enumCodec identity
+                                |> Codec.build
+
+                        expected =
+                            case v of
+                                Nothing ->
+                                    Just EnumA
+
+                                other ->
+                                    other
+                    in
+                    Message.init v
+                        |> Codec.encode codec
+                        |> Codec.decode codec
+                        |> Maybe.andThen (Message.view identity)
+                        |> Expect.equal expected
+            , fuzz enum "enumUnsafe" <|
+                expectSymmetric
+                    (Codec.builder identity
+                        |> Codec.required 1 enumUnsafeCodec identity
+                        |> Codec.build
+                    )
+            , fuzz (maybe oneof) "oneof" <|
                 expectSymmetric
                     (Codec.builder identity
                         |> Codec.oneof oneofCodec identity
@@ -120,51 +145,50 @@ type Enum
 
 enum : Fuzzer Enum
 enum =
-    Fuzz.map enumType (Fuzz.intRange 0 3)
+    Fuzz.map
+        (\n ->
+            case n of
+                0 ->
+                    EnumA
 
+                1 ->
+                    EnumB
 
-enumType : Int -> Enum
-enumType value =
-    case value of
-        0 ->
-            EnumA
+                2 ->
+                    EnumC
 
-        1 ->
-            EnumB
-
-        2 ->
-            EnumC
-
-        _ ->
-            EnumA
-
-
-enumCodec : Codec.Codec Enum
-enumCodec =
-    Codec.invmap
-        enumType
-        (\model ->
-            case model of
-                EnumA ->
-                    0
-
-                EnumB ->
-                    1
-
-                EnumC ->
-                    2
+                _ ->
+                    EnumA
         )
-        Codec.int32
+        (Fuzz.intRange 0 3)
 
 
-type OneOf
+enumCodec : Codec.Codec (Maybe Enum)
+enumCodec =
+    Codec.enum
+        [ ( 0, EnumA )
+        , ( 1, EnumB )
+        , ( 2, EnumC )
+        ]
+
+
+enumUnsafeCodec : Codec.Codec Enum
+enumUnsafeCodec =
+    Codec.enumUnsafe EnumA
+        [ ( 0, EnumA )
+        , ( 1, EnumB )
+        , ( 2, EnumC )
+        ]
+
+
+type Oneof
     = String String
     | Int32 Int
     | Double Float
 
 
-oneOf : Fuzzer OneOf
-oneOf =
+oneof : Fuzzer Oneof
+oneof =
     Fuzz.oneOf
         [ Fuzz.map String string
         , Fuzz.map Int32 int32
@@ -172,7 +196,7 @@ oneOf =
         ]
 
 
-oneofCodec : Codec.OneofCodec OneOf
+oneofCodec : Codec.OneofCodec Oneof
 oneofCodec =
     Codec.oneofBuilder
         (\stringEncoder intEncoder doubleEncoder model ->

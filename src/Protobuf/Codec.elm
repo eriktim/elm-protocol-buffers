@@ -1,13 +1,14 @@
 module Protobuf.Codec exposing
     ( Codec, decode, encode
     , CodecBuilder, builder, field, required, optional, repeated, repeatedInefficiently, map, oneof, build
-    , OneofCodec, OneofCodecBuilder, oneofBuilder, FieldEncoder, oneofField, buildOneof
     , int32, uint32, sint32, fixed32, sfixed32
     , double, float
     , string
     , bool
     , bytes
+    , OneofCodec, OneofCodecBuilder, oneofBuilder, FieldEncoder, oneofField, buildOneof
     , invmap, maybe, lazy
+    , enum, enumUnsafe
     )
 
 {-| Library for turning
@@ -31,11 +32,6 @@ values and vice versa.
 # Codec Builder
 
 @docs CodecBuilder, builder, field, required, optional, repeated, repeatedInefficiently, map, oneof, build
-
-
-# Oneof Builder
-
-@docs OneofCodec, OneofCodecBuilder, oneofBuilder, FieldEncoder, oneofField, buildOneof
 
 
 # Integers
@@ -63,6 +59,16 @@ values and vice versa.
 @docs bytes
 
 
+# Enumerations
+
+enum, enumUnsafe
+
+
+# Oneof Builder
+
+@docs OneofCodec, OneofCodecBuilder, oneofBuilder, FieldEncoder, oneofField, buildOneof
+
+
 # Special
 
 @docs invmap, maybe, lazy
@@ -74,7 +80,6 @@ values and vice versa.
 import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Dict exposing (Dict)
-import Http
 import Internal.Decode as Decode
 import Internal.Encode as Encode
 import Internal.Protobuf as Protobuf exposing (..)
@@ -179,7 +184,7 @@ fieldCodec fieldDecoder fieldEncoder getter (CodecBuilder cb) =
 field : Int -> Codec v -> (a -> v) -> CodecBuilder (v -> f) a -> CodecBuilder f a
 field fieldNumber (Codec c) getter =
     let
-        ( defaultValue, matches ) =
+        ( defaultValue, isDefault ) =
             case c.default of
                 Default v m ->
                     ( Just v, m )
@@ -188,7 +193,7 @@ field fieldNumber (Codec c) getter =
                     ( Nothing, always False )
 
         maybeGetter model =
-            if matches (getter model) then
+            if isDefault (getter model) then
                 Nothing
 
             else
@@ -203,8 +208,22 @@ field fieldNumber (Codec c) getter =
 {-| -}
 optional : Int -> Codec v -> (a -> v) -> Maybe v -> CodecBuilder (v -> f) a -> CodecBuilder f a
 optional fieldNumber (Codec c) getter maybeDefault =
+    let
+        defaultValue =
+            case maybeDefault of
+                Just v ->
+                    Just v
+
+                Nothing ->
+                    case c.default of
+                        Default v _ ->
+                            Just v
+
+                        NoDefault ->
+                            Nothing
+    in
     fieldCodec
-        (Decode.field fieldNumber c.decoder maybeDefault)
+        (Decode.field fieldNumber c.decoder defaultValue)
         (Tuple.pair fieldNumber << c.encoder)
         (Just << getter)
 
@@ -483,3 +502,68 @@ bytes =
         (Default emptyBytes ((==) 0 << Bytes.width))
         Decode.bytes
         Encode.bytes
+
+
+
+-- ENUM
+
+
+{-| -}
+enum : List ( Int, a ) -> Codec (Maybe a)
+enum items =
+    let
+        defaultValue =
+            List.filter ((==) 0 << Tuple.first) items
+                |> List.map Tuple.second
+                |> List.head
+    in
+    buildCodec (default defaultValue)
+        (Decode.custom
+            Decode.int32
+            (\n ->
+                case enumValue items n of
+                    Just v ->
+                        Just ( Decode.ConsumedChunk, Just v )
+
+                    Nothing ->
+                        if n == 0 then
+                            Nothing
+
+                        else
+                            Just ( Decode.ConsumedNone, Nothing )
+            )
+        )
+        (Maybe.withDefault Encode.none << Maybe.map (enumEncoder items))
+
+
+{-| -}
+enumUnsafe : a -> List ( Int, a ) -> Codec a
+enumUnsafe defaultValue items =
+    buildCodec (default defaultValue)
+        (Decode.custom
+            Decode.int32
+            (\n ->
+                case enumValue items n of
+                    Just v ->
+                        Just ( Decode.ConsumedChunk, v )
+
+                    Nothing ->
+                        Just ( Decode.ConsumedNone, defaultValue )
+            )
+        )
+        (enumEncoder items)
+
+
+enumValue : List ( Int, v ) -> Int -> Maybe v
+enumValue items n =
+    List.filter ((==) n << Tuple.first) items
+        |> List.map Tuple.second
+        |> List.head
+
+
+enumEncoder : List ( Int, v ) -> v -> Encode.Encoder
+enumEncoder items v =
+    List.filter ((==) v << Tuple.second) items
+        |> List.map (Encode.int32 << Tuple.first)
+        |> List.head
+        |> Maybe.withDefault Encode.none

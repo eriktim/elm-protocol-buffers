@@ -1,7 +1,9 @@
 module Internal.Decode exposing
-    ( Decoder
+    ( ConsumedBytes(..)
+    , Decoder
     , bool
     , bytes
+    , custom
     , decode
     , dict
     , double
@@ -25,7 +27,6 @@ import Bytes
 import Bytes.Decode as Decode
 import Bytes.Encode as Encode
 import Dict
-import Http
 import Internal.Protobuf exposing (..)
 import Set
 
@@ -35,7 +36,13 @@ import Set
 
 
 type Decoder a
-    = Decoder (WireType -> Decode.Decoder ( Int, a ))
+    = Decoder (WireType -> Decode.Decoder ( ConsumedBytes, a ))
+
+
+type ConsumedBytes
+    = ConsumedBytes Int
+    | ConsumedChunk
+    | ConsumedNone
 
 
 
@@ -59,7 +66,7 @@ message v =
             case wireType of
                 LengthDelimited width ->
                     fieldDataDecoder width
-                        |> Decode.map (\fieldData -> ( width, ( fieldData, v ) ))
+                        |> Decode.map (\fieldData -> ( ConsumedBytes width, ( fieldData, v ) ))
 
                 _ ->
                     Decode.fail
@@ -70,20 +77,23 @@ message v =
 -- FIELD DECODERS
 
 
-decodeField : (Int -> Bool) -> (FieldData -> Maybe v) -> Decoder ( FieldData, v -> a ) -> Decoder ( FieldData, a )
-decodeField predicate decodeFields (Decoder d) =
+fieldDecoder : (Int -> Bool) -> (FieldData -> Maybe ( ConsumedBytes, v )) -> Decoder ( FieldData, v -> a ) -> Decoder ( FieldData, a )
+fieldDecoder predicate decodeFields (Decoder d) =
     Decoder
         (\wireType ->
             d wireType
                 |> Decode.andThen
-                    (\( usedBytes, ( fieldData, f ) ) ->
+                    (\( _, ( fieldData, f ) ) ->
                         let
                             ( fields, newFieldData ) =
                                 List.partition (predicate << Tuple.first) fieldData
                         in
                         case decodeFields fields of
-                            Just value ->
-                                Decode.succeed ( 0, ( newFieldData, f value ) )
+                            Just ( ConsumedNone, value ) ->
+                                Decode.succeed ( ConsumedNone, ( fieldData, f value ) )
+
+                            Just ( consumedBytes, value ) ->
+                                Decode.succeed ( consumedBytes, ( newFieldData, f value ) )
 
                             Nothing ->
                                 Decode.fail
@@ -91,22 +101,27 @@ decodeField predicate decodeFields (Decoder d) =
         )
 
 
+decodeChunk : Decoder a -> Chunk -> Maybe ( ConsumedBytes, a )
+decodeChunk (Decoder decoder) ( wireType, bs ) =
+    Decode.decode (decoder wireType) bs
+
+
 field : Int -> Decoder v -> Maybe v -> Decoder ( FieldData, v -> a ) -> Decoder ( FieldData, a )
 field fieldNumber decoder default =
-    decodeField
+    fieldDecoder
         ((==) fieldNumber)
         (\fields ->
-            let
-                decodedValue =
-                    List.head fields
-                        |> Maybe.andThen (decodeChunk decoder << Tuple.second)
-            in
-            case decodedValue of
-                Nothing ->
-                    default
+            case Maybe.map Tuple.second (List.head fields) of
+                Just chunk ->
+                    decodeChunk decoder chunk
 
-                v ->
-                    v
+                Nothing ->
+                    case default of
+                        Just v ->
+                            Just ( ConsumedChunk, v )
+
+                        Nothing ->
+                            Nothing
         )
 
 
@@ -124,15 +139,16 @@ repeated fieldNumber (Decoder decoder) =
                             Decode.map (Tuple.mapSecond List.singleton) (decoder wireType)
                 )
     in
-    decodeField
+    fieldDecoder
         ((==) fieldNumber)
         (\fields ->
             List.map Tuple.second fields
                 |> List.foldr
                     (\chunk values ->
-                        Maybe.map2 (++) values (decodeChunk listDecoder chunk)
+                        Maybe.map2 (++) values (Maybe.map Tuple.second <| decodeChunk listDecoder chunk)
                     )
                     (Just [])
+                |> Maybe.map (Tuple.pair ConsumedChunk)
         )
 
 
@@ -144,16 +160,16 @@ dict fieldNumber keyDecoder valueDecoder ( defaultKey, defaultValue ) =
                 |> field 1 keyDecoder defaultKey
                 |> field 2 valueDecoder defaultValue
     in
-    decodeField
+    fieldDecoder
         ((==) fieldNumber)
         (\fields ->
             List.map Tuple.second fields
                 |> List.foldr
                     (\chunk values ->
-                        Maybe.map2 (++) values (Maybe.map (List.singleton << Tuple.second) <| decodeChunk dictDecoder chunk)
+                        Maybe.map2 (++) values (Maybe.map (List.singleton << Tuple.second << Tuple.second) <| decodeChunk dictDecoder chunk)
                     )
                     (Just [])
-                |> Maybe.map Dict.fromList
+                |> Maybe.map (Tuple.pair ConsumedChunk << Dict.fromList)
         )
 
 
@@ -163,20 +179,21 @@ oneOf decoders =
         fieldNumbers =
             List.map Tuple.first decoders
     in
-    decodeField
+    fieldDecoder
         (\n -> List.member n fieldNumbers)
         (\fields ->
             case fields of
                 ( fieldNumber, chunk ) :: _ ->
                     case List.head (List.filter ((==) fieldNumber << Tuple.first) decoders) of
                         Just ( _, decoder ) ->
-                            Just (decodeChunk decoder chunk)
+                            decodeChunk decoder chunk
+                                |> Maybe.map (Tuple.mapSecond Just)
 
                         Nothing ->
                             Nothing
 
                 [] ->
-                    Just Nothing
+                    Just ( ConsumedNone, Nothing )
         )
 
 
@@ -235,6 +252,20 @@ bytes =
 
 
 
+-- CUSTOM
+
+
+custom : Decoder a -> (a -> Maybe ( ConsumedBytes, b )) -> Decoder b
+custom (Decoder decoder) fn =
+    Decoder
+        (\wireType ->
+            decoder wireType
+                |> Decode.map (fn << Tuple.second)
+                |> Decode.andThen (Maybe.withDefault Decode.fail << Maybe.map Decode.succeed)
+        )
+
+
+
 -- MAP
 
 
@@ -276,23 +307,23 @@ fieldDataStepDecoder ( bytesRemaining, fieldData ) =
         Decode.succeed (Decode.Done fieldData)
 
     else
-        fieldDecoder
+        fieldChunkDecoder
             |> Decode.map
-                (\{ fieldNumber, usedBytes, chunk } ->
-                    Decode.Loop ( bytesRemaining - usedBytes, ( fieldNumber, chunk ) :: fieldData )
+                (\{ fieldNumber, bytesConsumed, chunk } ->
+                    Decode.Loop ( bytesRemaining - bytesConsumed, ( fieldNumber, chunk ) :: fieldData )
                 )
 
 
-fieldDecoder : Decode.Decoder { fieldNumber : Int, usedBytes : Int, chunk : Chunk }
-fieldDecoder =
+fieldChunkDecoder : Decode.Decoder { fieldNumber : Int, bytesConsumed : Int, chunk : Chunk }
+fieldChunkDecoder =
     tagDecoder
         |> Decode.andThen
-            (\( usedBytes, ( fieldNumber, wireType ) ) ->
+            (\( bytesConsumed, ( fieldNumber, wireType ) ) ->
                 chunkDecoder wireType
                     |> Decode.map
                         (\( n, chunk ) ->
                             { fieldNumber = fieldNumber
-                            , usedBytes = usedBytes + n
+                            , bytesConsumed = bytesConsumed + n
                             , chunk = chunk
                             }
                         )
@@ -321,22 +352,16 @@ chunkDecoder wireType =
             Decode.map (Tuple.pair 4 << Tuple.pair wireType) (Decode.bytes 4)
 
 
-decodeChunk : Decoder a -> Chunk -> Maybe a
-decodeChunk (Decoder decoder) ( wireType, bs ) =
-    Decode.decode (decoder wireType) bs
-        |> Maybe.map Tuple.second
-
-
 tagDecoder : Decode.Decoder ( Int, ( Int, WireType ) )
 tagDecoder =
     varIntDecoder
         |> Decode.andThen
-            (\( usedBytes, value ) ->
+            (\( bytesConsumed, value ) ->
                 let
                     fieldNumber =
                         Bitwise.shiftRightZfBy 3 value
                 in
-                Decode.map (\( n, wireType ) -> ( usedBytes + n, ( fieldNumber, wireType ) )) <|
+                Decode.map (\( n, wireType ) -> ( bytesConsumed + n, ( fieldNumber, wireType ) )) <|
                     case Bitwise.and 0x07 value of
                         0 ->
                             Decode.succeed ( 0, VarInt )
@@ -365,12 +390,13 @@ lengthDelimitedDecoder : (Int -> Decode.Decoder a) -> Decoder a
 lengthDelimitedDecoder decoder =
     Decoder
         (\wireType ->
-            case wireType of
-                LengthDelimited width ->
-                    Decode.map (Tuple.pair width) (decoder width)
+            Decode.map (Tuple.mapFirst ConsumedBytes) <|
+                case wireType of
+                    LengthDelimited width ->
+                        Decode.map (Tuple.pair width) (decoder width)
 
-                _ ->
-                    Decode.fail
+                    _ ->
+                        Decode.fail
         )
 
 
@@ -378,33 +404,39 @@ packedDecoder : WireType -> Decode.Decoder ( Int, a ) -> Decoder a
 packedDecoder decoderWireType decoder =
     Decoder
         (\wireType ->
-            case wireType of
-                LengthDelimited _ ->
-                    decoder
-
-                _ ->
-                    if wireType == decoderWireType then
+            Decode.map (Tuple.mapFirst ConsumedBytes) <|
+                case wireType of
+                    LengthDelimited _ ->
                         decoder
 
-                    else
-                        Decode.fail
+                    _ ->
+                        if wireType == decoderWireType then
+                            decoder
+
+                        else
+                            Decode.fail
         )
 
 
-stepPackedField : Int -> Decode.Decoder ( Int, a ) -> ( Int, List a ) -> Decode.Decoder (Decode.Step ( Int, List a ) ( Int, List a ))
+stepPackedField : Int -> Decode.Decoder ( ConsumedBytes, a ) -> ( Int, List a ) -> Decode.Decoder (Decode.Step ( Int, List a ) ( ConsumedBytes, List a ))
 stepPackedField fullWidth decoder ( width, values ) =
     decoder
         |> Decode.map
-            (\( w, value ) ->
+            (\( consumedBytes, value ) ->
                 let
                     bytesRemaining =
-                        width - w
+                        case consumedBytes of
+                            ConsumedBytes n ->
+                                width - n
+
+                            _ ->
+                                width
 
                     values_ =
                         values ++ [ value ]
                 in
                 if bytesRemaining <= 0 then
-                    Decode.Done ( fullWidth, values_ )
+                    Decode.Done ( ConsumedBytes fullWidth, values_ )
 
                 else
                     Decode.Loop ( bytesRemaining, values_ )

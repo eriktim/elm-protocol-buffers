@@ -4,8 +4,7 @@ This package lets you create encoders and decoders for (de)serializing data
 according to the [Protobuf](https://developers.google.com/protocol-buffers)
 specification. Typically, **you should not use this package directly** as the
 required encoders and decoders can be generated directly from `.proto`
-specification files, e.g. by using this
-[`protoc` plugin](https://www.npmjs.com/package/protoc-gen-elm).
+specification files.
 
 > Protocol buffers are Google's language-neutral, platform-neutral, extensible
 > mechanism for serializing structured data – think XML, but smaller, faster,
@@ -34,41 +33,44 @@ you to specify the interchange format explicity up front, making it
 * is Google's **_lingua franca_** for data.
 
 This package provides an API to help converting between Elm values and bytes
-by implementing Protocol Buffers. `elm-protocol-buffers` also opens the door to
-add support for the communication protocol
-[gRPC](https://grpc.io/docs/guides/index.html), which could be an interesting
-next step.
+by implementing Protocol buffers. As Protocol buffers is only about
+(de)serializing data, this package can be used with any compatible
+transportation layer on top of it, e.g.
+[gRPC](https://grpc.io/docs/guides/index.html) or
+[RSocket](http://rsocket.io/). 
 
 ## Extensive Example
 
 Given a Protobuf `.proto` file
 
 ```protobuf
+syntax = "proto3"
+
 message Person {
-  required string name = 1;
-  required int32 id = 2;
-  optional string email = 3;
-
-  enum PhoneType {
-    MOBILE = 0;
-    HOME = 1;
-    WORK = 2;
-  }
-
-  message PhoneNumber {
-    required string number = 1;
-    optional PhoneType type = 2 [default = HOME];
-  }
+  string name = 1;
+  int32 id = 2;
+  string email = 3;
 
   repeated PhoneNumber phone = 4;
+}
+
+message PhoneNumber {
+  string number = 1;
+  PhoneType type = 2;
+}
+
+enum PhoneType {
+  MOBILE = 0;
+  HOME = 1;
+  WORK = 2;
 }
 ```
 
 this package handles converting between `Person` and `Bytes` values:
 
 ```elm
-import Protobuf.Decode as Decode
-import Protobuf.Encode as Encode
+import Protobuf.Codec as Codec
+import Protobuf.Message as Message
 
 
 
@@ -79,13 +81,13 @@ type alias Person =
     { name : String
     , id : Int
     , email : String
-    , phone : List PhoneNumber
+    , phone : List (Message.Message PhoneNumber)
     }
 
 
 type alias PhoneNumber =
     { number : String
-    , type_ : PhoneType
+    , type_ : Maybe PhoneType
     }
 
 
@@ -99,111 +101,30 @@ type PhoneType
 -- ENCODE
 
 
-toPersonEncoder : Person -> Encode.Encoder
-toPersonEncoder person =
-    Encode.message
-        [ ( 1, Encode.string person.name )
-        , ( 2, Encode.int32 person.id )
-        , ( 3, Encode.string person.email )
-        , ( 4, Encode.list toPhoneNumberEncoder person.phone )
-        ]
+personCodec : Codec.Codec (Message.Message Person)
+personCodec =
+    Codec.builder Person
+        |> Codec.field 1 Codec.string .name
+        |> Codec.field 2 Codec.int32 .id
+        |> Codec.field 3 Codec.string .email
+        |> Codec.repeated 4 phoneNumberCodec .phone
+        |> Codec.build
 
 
-toPhoneNumberEncoder : PhoneNumber -> Encode.Encoder
-toPhoneNumberEncoder phoneNumber =
-    Encode.message
-        [ ( 1, Encode.string phoneNumber.number )
-        , ( 2, toPhoneTypeEncoder phoneNumber.type_ )
-        ]
+phoneNumberCodec : Codec.Codec (Message.Message PhoneNumber)
+phoneNumberCodec =
+    Codec.builder PhoneNumber
+        |> Codec.field 1 Codec.string .number
+        |> Codec.enum 2 phoneTypeValues .type_
+        |> Codec.build
 
 
-toPhoneTypeEncoder : PhoneType -> Encode.Encoder
-toPhoneTypeEncoder phoneType =
-    case phoneType of
-        Mobile ->
-            Encode.int32 0
-
-        Home ->
-            Encode.int32 1
-
-        Work ->
-            Encode.int32 2
-
-
-
--- DECODE
-
-
-personDecoder : Decode.Decoder Person
-personDecoder =
-    Decode.message (Person "" 0 "" [])
-        [ Decode.required 1 Decode.string setName
-        , Decode.required 2 Decode.int32 setId
-        , Decode.optional 3 Decode.string setEmail
-        , Decode.repeated 4 phoneNumberDecoder .phone setPhone
-        ]
-
-
-phoneNumberDecoder : Decode.Decoder PhoneNumber
-phoneNumberDecoder =
-    Decode.message (PhoneNumber "" Home)
-        [ Decode.required 1 Decode.string setNumber
-        , Decode.optional 2 phoneTypeDecoder setType
-        ]
-
-
-phoneTypeDecoder : Decode.Decoder PhoneType
-phoneTypeDecoder =
-    Decode.int32
-        |> Decode.map
-            (\value ->
-                case value of
-                    0 ->
-                        Mobile
-
-                    1 ->
-                        Home
-
-                    2 ->
-                        Work
-
-                    _ ->
-                        Home
-            )
-
-
-
--- SETTERS
-
-
-setName : a -> { b | name : a } -> { b | name : a }
-setName value model =
-    { model | name = value }
-
-
-setId : a -> { b | id : a } -> { b | id : a }
-setId value model =
-    { model | id = value }
-
-
-setEmail : a -> { b | email : a } -> { b | email : a }
-setEmail value model =
-    { model | email = value }
-
-
-setPhone : a -> { b | phone : a } -> { b | phone : a }
-setPhone value model =
-    { model | phone = value }
-
-
-setNumber : a -> { b | number : a } -> { b | number : a }
-setNumber value model =
-    { model | number = value }
-
-
-setType : a -> { b | type_ : a } -> { b | type_ : a }
-setType value model =
-    { model | type_ = value }
+phoneTypeValues : List ( Int, PhoneType )
+phoneTypeValues =
+    [ ( 0, Mobile )
+    , ( 1, Home )
+    , ( 2, Work )
+    ]
 ```
 
 ## Known Limitations

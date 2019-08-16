@@ -53,7 +53,6 @@ suite =
             ]
         , describe "bytes"
             [ test "some bytes" <|
-                -- FIXME was field 5
                 expectBytes
                     (Codec.builder identity
                         |> Codec.required 5 Codec.bytes identity

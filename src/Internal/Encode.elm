@@ -69,7 +69,7 @@ message fieldData items =
     items
         |> List.sortBy Tuple.first
         |> List.map toKeyValuePairEncoder
-        |> (\encoders -> encoders ++ List.map (\( num, ( _, bs ) ) -> toKeyValuePairEncoder ( num, bytes bs )) fieldData)
+        |> (\encoders -> List.map (\( fieldNumber, ( wireType, bs ) ) -> toKeyValuePairEncoder ( fieldNumber, Encoder wireType ( 0, Encode.bytes bs ) )) fieldData ++ encoders)
         |> sequence
         |> (\e -> Encoder (LengthDelimited (Tuple.first e)) e)
 
