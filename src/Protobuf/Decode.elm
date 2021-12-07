@@ -778,10 +778,10 @@ stepPackedField fullWidth decoder ( width, values ) =
                     width - w
 
                 values_ =
-                    values ++ [ value ]
+                    value :: values
             in
             if bytesRemaining <= 0 then
-                Decode.Done ( fullWidth, values_ )
+                Decode.Done ( fullWidth, List.reverse values_ )
 
             else
                 Decode.Loop ( bytesRemaining, values_ )
