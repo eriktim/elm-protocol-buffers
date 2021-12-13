@@ -1,6 +1,0 @@
-language: elm
-
-node_js: '11' # as the LTS suffers from https://github.com/elm/core/issues/958
-
-elm:
-  - "0.19.0"
