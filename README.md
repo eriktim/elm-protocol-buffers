@@ -1,4 +1,4 @@
-# Protocol Buffers [![Build Status](https://travis-ci.org/eriktim/elm-protocol-buffers.svg?branch=master)](https://travis-ci.org/eriktim/elm-protocol-buffers)
+# Protocol Buffers [![ci](https://github.com/eriktim/elm-protocol-buffers/actions/workflows/ci.yml/badge.svg)](https://github.com/eriktim/elm-protocol-buffers/actions/workflows/ci.yml)
 
 This package lets you create encoders and decoders for (de)serializing data
 according to the [Protobuf](https://developers.google.com/protocol-buffers)
