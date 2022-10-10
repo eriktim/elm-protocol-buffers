@@ -1,6 +1,6 @@
 module Protobuf.Encode exposing
     ( encode, Encoder, message
-    , int32, uint32, sint32, fixed32, sfixed32
+    , int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
     , double, float
     , string
     , bool
@@ -28,7 +28,7 @@ module Protobuf.Encode exposing
 
 # Integers
 
-@docs int32, uint32, sint32, fixed32, sfixed32
+@docs int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
 
 
 # Floats
@@ -66,7 +66,9 @@ import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
+import Int64 exposing (Int64)
 import Internal.Protobuf exposing (WireType(..))
+import UInt64 exposing (UInt64)
 
 
 
@@ -270,6 +272,48 @@ Always four bytes.
 sfixed32 : Int -> Encoder
 sfixed32 v =
     Encoder Bit32 ( 4, Encode.signedInt32 LE v )
+
+
+{-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message. Uses
+variable-length encoding. Inefficient for encoding negative numbers – if your
+field is likely to have negative values, use [`sint64`](#sint64) instead.
+-}
+int64 : Int64 -> Encoder
+int64 =
+    Encoder VarInt << varInt64
+
+
+{-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message. Uses
+variable-length encoding. These encoder encodes negative numbers more
+efficiently than [`int64`](#int64).
+-}
+sint64 : Int64 -> Encoder
+sint64 =
+    Encoder VarInt << varInt64 << zigZag64
+
+
+{-| Encode integers from `0` to `18446744073709551615` into a message.
+Uses variable-length encoding.
+-}
+uint64 : UInt64 -> Encoder
+uint64 =
+    Encoder VarInt << varUint64
+
+
+{-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message.
+Always eight bytes.
+-}
+sfixed64 : Int64 -> Encoder
+sfixed64 v =
+    Encoder Bit64 ( 8, Int64.encoder LE v )
+
+
+{-| Encode integers from `0` to `18446744073709551615` into a message.
+Always eight bytes.
+-}
+fixed64 : UInt64 -> Encoder
+fixed64 v =
+    Encoder Bit64 ( 8, UInt64.toBigEndianBytes v |> List.reverse |> List.map Encode.unsignedInt8 |> Encode.sequence )
 
 
 
@@ -574,6 +618,24 @@ varInt value =
     ( List.length encoders, Encode.sequence encoders )
 
 
+varInt64 : Int64 -> ( Int, Encode.Encoder )
+varInt64 value =
+    let
+        encoders =
+            toVarInt64Encoders value
+    in
+    ( List.length encoders, Encode.sequence encoders )
+
+
+varUint64 : UInt64 -> ( Int, Encode.Encoder )
+varUint64 value =
+    let
+        encoders =
+            toVarUint64Encoders value
+    in
+    ( List.length encoders, Encode.sequence encoders )
+
+
 unsigned : Int -> Int
 unsigned value =
     if value >= 2 ^ 31 then
@@ -586,6 +648,13 @@ unsigned value =
 zigZag : Int -> Int
 zigZag value =
     Bitwise.xor (Bitwise.shiftRightBy 31 value) (Bitwise.shiftLeftBy 1 value)
+
+
+zigZag64 : Int64 -> Int64
+zigZag64 value =
+    -- Int64 Lib currently does not implement `shiftRightBy`, so this is used as a (less efficient) replacement.
+    Int64.xor (Int64.shiftRightZfBy 63 value |> Int64.complement |> Int64.add (Int64.fromInt 1))
+        (Int64.shiftLeftBy 1 value)
 
 
 toVarIntEncoders : Int -> List Encode.Encoder
@@ -602,3 +671,54 @@ toVarIntEncoders value =
 
     else
         [ Encode.unsignedInt8 base128 ]
+
+
+toVarInt64Encoders : Int64 -> List Encode.Encoder
+toVarInt64Encoders value =
+    let
+        base128 =
+            Int64.and (Int64.fromInt 0x7F) value
+
+        higherBits =
+            Int64.shiftRightZfBy 7 value
+    in
+    if higherBits /= Int64.fromInt 0 then
+        Encode.unsignedInt8 (Bitwise.or 0x80 <| lastByte base128) :: toVarInt64Encoders higherBits
+
+    else
+        [ Encode.unsignedInt8 <| lastByte base128 ]
+
+
+toVarUint64Encoders : UInt64 -> List Encode.Encoder
+toVarUint64Encoders value =
+    let
+        ( _, _, base128 ) =
+            UInt64.and (UInt64.fromInt24s 0 0 0x7F) value
+                |> UInt64.toInt24s
+
+        higherBits =
+            UInt64.shiftRightZfBy 7 value
+    in
+    if UInt64.isZero higherBits then
+        [ Encode.unsignedInt8 base128 ]
+
+    else
+        Encode.unsignedInt8 (Bitwise.or 0x80 base128) :: toVarUint64Encoders higherBits
+
+
+lastByte : Int64 -> Int
+lastByte =
+    Int64.toByteValues >> last
+
+
+last : List Int -> Int
+last items =
+    case items of
+        [] ->
+            0
+
+        [ x ] ->
+            x
+
+        _ :: rest ->
+            last rest

@@ -1,12 +1,8 @@
 module MessageTest exposing (suite)
 
-import Bytes
-import Bytes.Decode
-import Bytes.Encode
-import Dict exposing (Dict)
-import Expect exposing (Expectation)
-import Fuzz exposing (Fuzzer, bool, float, int, list, maybe, string)
-import Hex
+import Dict
+import Expect
+import Fuzz exposing (Fuzzer, bool, float, list, maybe, string)
 import Protobuf.Decode as Decode
 import Protobuf.Encode as Encode
 import Test exposing (..)

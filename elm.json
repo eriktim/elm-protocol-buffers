@@ -13,7 +13,9 @@
     "dependencies": {
         "elm/bytes": "1.0.7 <= v < 2.0.0",
         "elm/core": "1.0.2 <= v < 2.0.0",
-        "elm/http": "2.0.0 <= v < 3.0.0"
+        "elm/http": "2.0.0 <= v < 3.0.0",
+        "folkertdev/elm-int64": "1.0.0 <= v < 2.0.0",
+        "malaire/elm-uint64": "2.0.0 <= v < 3.0.0"
     },
     "test-dependencies": {
         "elm/json": "1.1.2 <= v < 2.0.0",

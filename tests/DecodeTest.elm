@@ -1,9 +1,6 @@
 module DecodeTest exposing (suite)
 
-import Dict
-import Expect exposing (Expectation)
-import Fuzz exposing (Fuzzer, int, list, string)
-import Hex
+import Expect
 import Protobuf.Decode as Decode
 import Protobuf.Encode as Encode
 import Test exposing (..)

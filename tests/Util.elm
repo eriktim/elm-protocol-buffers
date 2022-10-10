@@ -5,7 +5,7 @@ import Bytes.Decode
 import Bytes.Encode
 import Dict exposing (Dict)
 import Expect exposing (Expectation)
-import Fuzz exposing (Fuzzer, bool, float, int, list, maybe, string)
+import Fuzz exposing (Fuzzer, float, list)
 import Protobuf.Decode as Decode
 import Protobuf.Encode as Encode
 
