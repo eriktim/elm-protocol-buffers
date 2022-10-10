@@ -1,7 +1,7 @@
 module Protobuf.Decode exposing
     ( Decoder, decode, expectBytes, FieldDecoder, message
     , required, optional, repeated, mapped, oneOf
-    , int32, uint32, sint32, fixed32, sfixed32
+    , int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
     , double, float
     , string
     , bool
@@ -27,7 +27,7 @@ values.
 
 # Integers
 
-@docs int32, uint32, sint32, fixed32, sfixed32
+@docs int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
 
 
 # Floats
@@ -66,8 +66,10 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode
 import Dict exposing (Dict)
 import Http
+import Int64 exposing (Int64)
 import Internal.Protobuf exposing (WireType(..))
 import Set
+import UInt64 exposing (UInt64)
 
 
 
@@ -498,6 +500,58 @@ sfixed32 =
     packedDecoder Bit32 (Decode.map (Tuple.pair 4) (Decode.signedInt32 LE))
 
 
+{-| Decode a variable number of bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
+-}
+int64 : Decoder Int64
+int64 =
+    packedDecoder VarInt varInt64Decoder
+
+
+{-| Decode a variable number of bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
+-}
+sint64 : Decoder Int64
+sint64 =
+    packedDecoder VarInt (Decode.map (Tuple.mapSecond zigZag64) varInt64Decoder)
+
+
+{-| Decode a variable number of bytes into an integer from `0` to `18446744073709551615`.
+-}
+uint64 : Decoder UInt64
+uint64 =
+    packedDecoder VarInt varUint64Decoder
+
+
+{-| Decode a eight bytes into an integer from `0` to `18446744073709551615`.
+-}
+fixed64 : Decoder UInt64
+fixed64 =
+    let
+        length =
+            8
+
+        fixed64Help ( n, octets ) =
+            if n > 0 then
+                Decode.unsignedInt8
+                    |> Decode.map (\octet -> Decode.Loop ( n - 1, octet :: octets ))
+
+            else
+                Decode.succeed <| Decode.Done <| UInt64.fromBigEndianBytes octets
+    in
+    packedDecoder Bit64
+        (Decode.loop ( length, [] ) fixed64Help
+            |> Decode.map (Tuple.pair length)
+        )
+
+
+{-| Decode eight bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
+-}
+sfixed64 : Decoder Int64
+sfixed64 =
+    Int64.decoder LE
+        |> Decode.map (Tuple.pair 8)
+        |> packedDecoder Bit64
+
+
 
 -- FLOAT
 
@@ -739,6 +793,43 @@ varIntDecoder =
             )
 
 
+varInt64Decoder : Decode.Decoder ( Int, Int64 )
+varInt64Decoder =
+    Decode.unsignedInt8
+        |> Decode.andThen
+            (\octet ->
+                if Bitwise.and 0x80 octet == 0x80 then
+                    Decode.map
+                        (\( usedBytes, value ) ->
+                            ( usedBytes + 1, Int64.add (Int64.fromInt32s 0 <| Bitwise.and 0x7F octet) (Int64.shiftLeftBy 7 value) )
+                        )
+                        varInt64Decoder
+
+                else
+                    Decode.succeed ( 1, Int64.fromInt32s 0 octet )
+            )
+
+
+varUint64Decoder : Decode.Decoder ( Int, UInt64 )
+varUint64Decoder =
+    Decode.unsignedInt8
+        |> Decode.andThen
+            (\octet ->
+                if Bitwise.and 0x80 octet == 0x80 then
+                    Decode.map
+                        (\( usedBytes, value ) ->
+                            ( usedBytes + 1
+                            , UInt64.add (UInt64.fromInt24s 0 0 <| Bitwise.and 0x7F octet)
+                                (UInt64.shiftLeftBy 7 value)
+                            )
+                        )
+                        varUint64Decoder
+
+                else
+                    Decode.succeed ( 1, UInt64.fromInt32s 0 octet )
+            )
+
+
 lengthDelimitedDecoder : (Int -> Decode.Decoder a) -> Decoder a
 lengthDelimitedDecoder decoder =
     Decoder
@@ -827,3 +918,20 @@ unsigned value =
 zigZag : Int -> Int
 zigZag value =
     Bitwise.xor (Bitwise.shiftRightZfBy 1 value) (-1 * Bitwise.and 1 value)
+
+
+zigZag64 : Int64 -> Int64
+zigZag64 value =
+    Int64.xor (Int64.shiftRightZfBy 1 value) (negate64 <| Int64.and (Int64.fromInt32s 0 1) value)
+        -- necessary because of https://github.com/folkertdev/elm-int64/issues/7
+        |> repack
+
+
+repack : Int64 -> Int64
+repack =
+    Int64.complement >> Int64.complement
+
+
+negate64 : Int64 -> Int64
+negate64 =
+    Int64.subtract (Int64.fromInt32s 0 0)
