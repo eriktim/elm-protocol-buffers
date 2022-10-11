@@ -1,6 +1,6 @@
 module Protobuf.Encode exposing
     ( encode, Encoder, message
-    , int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
+    , int32, uint32, sint32, fixed32, sfixed32
     , double, float
     , string
     , bool
@@ -28,7 +28,7 @@ module Protobuf.Encode exposing
 
 # Integers
 
-@docs int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
+@docs int32, uint32, sint32, fixed32, sfixed32
 
 
 # Floats
@@ -67,7 +67,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
 import Int64 exposing (Int64)
-import Internal.Protobuf exposing (WireType(..))
+import Internal.Protobuf exposing (GenericInt, WireType(..), generic32, generic64)
 import UInt64 exposing (UInt64)
 
 
@@ -219,7 +219,7 @@ Note that for `proto2` the `Unrecognized Int` field can be left out.
 -}
 int32 : Int -> Encoder
 int32 =
-    Encoder VarInt << varInt
+    Encoder VarInt << varInt generic32
 
 
 {-| Encode integers from `0` to `4294967295` into a message.
@@ -231,7 +231,7 @@ Uses variable-length encoding.
 -}
 uint32 : Int -> Encoder
 uint32 =
-    Encoder VarInt << varInt << unsigned
+    Encoder VarInt << varInt generic32 << unsigned generic32
 
 
 {-| Encode integers from `-2147483648` to `2147483647` into a message. Uses
@@ -245,7 +245,7 @@ efficiently than [`int32`](#int32).
 -}
 sint32 : Int -> Encoder
 sint32 =
-    Encoder VarInt << varInt << zigZag
+    Encoder VarInt << varInt generic32 << zigZag generic32
 
 
 {-| Encode integers from `0` to `4294967295` into a message. Always four bytes.
@@ -280,7 +280,7 @@ field is likely to have negative values, use [`sint64`](#sint64) instead.
 -}
 int64 : Int64 -> Encoder
 int64 =
-    Encoder VarInt << varInt64
+    Encoder VarInt << varInt generic64
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message. Uses
@@ -289,7 +289,7 @@ efficiently than [`int64`](#int64).
 -}
 sint64 : Int64 -> Encoder
 sint64 =
-    Encoder VarInt << varInt64 << zigZag64
+    Encoder VarInt << varInt generic64 << zigZag generic64
 
 
 {-| Encode integers from `0` to `18446744073709551615` into a message.
@@ -297,7 +297,7 @@ Uses variable-length encoding.
 -}
 uint64 : UInt64 -> Encoder
 uint64 =
-    Encoder VarInt << varUint64
+    Encoder VarInt << varInt generic64 << unsigned generic64
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message.
@@ -609,35 +609,17 @@ tag fieldNumber wireType =
 -- VARINT
 
 
-varInt : Int -> ( Int, Encode.Encoder )
-varInt value =
+varInt : GenericInt a -> a -> ( Int, Encode.Encoder )
+varInt int value =
     let
         encoders =
-            toVarIntEncoders value
+            toVarIntEncoders int value
     in
     ( List.length encoders, Encode.sequence encoders )
 
 
-varInt64 : Int64 -> ( Int, Encode.Encoder )
-varInt64 value =
-    let
-        encoders =
-            toVarInt64Encoders value
-    in
-    ( List.length encoders, Encode.sequence encoders )
-
-
-varUint64 : UInt64 -> ( Int, Encode.Encoder )
-varUint64 value =
-    let
-        encoders =
-            toVarUint64Encoders value
-    in
-    ( List.length encoders, Encode.sequence encoders )
-
-
-unsigned : Int -> Int
-unsigned value =
+unsigned : GenericInt a -> Int -> Int
+unsigned int value =
     if value >= 2 ^ 31 then
         value - 2 ^ 32
 
@@ -645,80 +627,39 @@ unsigned value =
         value
 
 
-zigZag : Int -> Int
-zigZag value =
+zigZag : GenericInt a -> a -> a
+zigZag int value =
     Bitwise.xor (Bitwise.shiftRightBy 31 value) (Bitwise.shiftLeftBy 1 value)
 
 
-zigZag64 : Int64 -> Int64
-zigZag64 value =
-    -- Int64 Lib currently does not implement `shiftRightBy`, so this is used as a (less efficient) replacement.
-    Int64.xor (Int64.shiftRightZfBy 63 value |> Int64.complement |> Int64.add (Int64.fromInt 1))
-        (Int64.shiftLeftBy 1 value)
+
+-- zigZag64 : Int64 -> Int64
+-- zigZag64 value =
+--     -- Int64 Lib currently does not implement `shiftRightBy`, so this is used as a (less efficient) replacement.
+--     Int64.xor (Int64.shiftRightZfBy 63 value |> Int64.complement |> Int64.add (Int64.fromInt 1))
+--         (Int64.shiftLeftBy 1 value)
 
 
-toVarIntEncoders : Int -> List Encode.Encoder
-toVarIntEncoders value =
+toVarIntEncoders : GenericInt a -> a -> List Encode.Encoder
+toVarIntEncoders int value =
     let
+        mask0x7F =
+            int.fromInt 0x7F
+
+        mask0x80 =
+            int.fromInt 0x80
+
+        zero =
+            int.fromInt 0
+
         base128 =
-            Bitwise.and 0x7F value
+            Bitwise.and mask0x7F (int.lastByte value)
 
         higherBits =
             Bitwise.shiftRightZfBy 7 value
     in
-    if higherBits /= 0x00 then
-        Encode.unsignedInt8 (Bitwise.or 0x80 base128) :: toVarIntEncoders higherBits
+    if higherBits /= int.fromInt zero then
+        Encode.unsignedInt8 (Bitwise.or mask0x80 base128) :: toVarIntEncoders int higherBits
 
     else
         [ Encode.unsignedInt8 base128 ]
-
-
-toVarInt64Encoders : Int64 -> List Encode.Encoder
-toVarInt64Encoders value =
-    let
-        base128 =
-            Int64.and (Int64.fromInt 0x7F) value
-
-        higherBits =
-            Int64.shiftRightZfBy 7 value
-    in
-    if higherBits /= Int64.fromInt 0 then
-        Encode.unsignedInt8 (Bitwise.or 0x80 <| lastByte base128) :: toVarInt64Encoders higherBits
-
-    else
-        [ Encode.unsignedInt8 <| lastByte base128 ]
-
-
-toVarUint64Encoders : UInt64 -> List Encode.Encoder
-toVarUint64Encoders value =
-    let
-        ( _, _, base128 ) =
-            UInt64.and (UInt64.fromInt24s 0 0 0x7F) value
-                |> UInt64.toInt24s
-
-        higherBits =
-            UInt64.shiftRightZfBy 7 value
-    in
-    if UInt64.isZero higherBits then
-        [ Encode.unsignedInt8 base128 ]
-
-    else
-        Encode.unsignedInt8 (Bitwise.or 0x80 base128) :: toVarUint64Encoders higherBits
-
-
-lastByte : Int64 -> Int
-lastByte =
-    Int64.toByteValues >> last
-
-
-last : List Int -> Int
-last items =
-    case items of
-        [] ->
-            0
-
-        [ x ] ->
-            x
-
-        _ :: rest ->
-            last rest
