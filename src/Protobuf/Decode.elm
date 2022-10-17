@@ -27,7 +27,7 @@ values.
 
 # Integers
 
-@docs int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
+@docs int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64, intType, uintType, sintType, fixed64Type
 
 
 # Floats
@@ -66,10 +66,10 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode
 import Dict exposing (Dict)
 import Http
-import Int64 exposing (Int64)
 import Internal.Protobuf exposing (WireType(..))
+import Internal.Int32 as Int32
+import Internal.Int64 as Int64 exposing (Int32s, Int64)
 import Set
-import UInt64 exposing (UInt64)
 
 
 
@@ -469,21 +469,21 @@ oneOf decoders set =
 -}
 int32 : Decoder Int
 int32 =
-    packedDecoder VarInt varIntDecoder
+    intType Int32.config
 
 
 {-| Decode a variable number of bytes into an integer from 0 to 4294967295.
 -}
 uint32 : Decoder Int
 uint32 =
-    packedDecoder VarInt (Decode.map (Tuple.mapSecond unsigned) varIntDecoder)
+    uintType Int32.config
 
 
 {-| Decode a variable number of bytes into an integer from -2147483648 to 2147483647.
 -}
 sint32 : Decoder Int
 sint32 =
-    packedDecoder VarInt (Decode.map (Tuple.mapSecond zigZag) varIntDecoder)
+    sintType Int32.config
 
 
 {-| Decode four bytes into an integer from 0 to 4294967295.
@@ -504,50 +504,69 @@ sfixed32 =
 -}
 int64 : Decoder Int64
 int64 =
-    packedDecoder VarInt varInt64Decoder
+    intType Int64.config
 
 
 {-| Decode a variable number of bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
 -}
 sint64 : Decoder Int64
 sint64 =
-    packedDecoder VarInt (Decode.map (Tuple.mapSecond zigZag64) varInt64Decoder)
+    sintType Int64.config
 
 
 {-| Decode a variable number of bytes into an integer from `0` to `18446744073709551615`.
 -}
-uint64 : Decoder UInt64
+uint64 : Decoder Int64
 uint64 =
-    packedDecoder VarInt varUint64Decoder
+    uintType Int64.config
 
 
 {-| Decode a eight bytes into an integer from `0` to `18446744073709551615`.
 -}
-fixed64 : Decoder UInt64
+fixed64 : Decoder Int64
 fixed64 =
-    let
-        length =
-            8
-
-        fixed64Help ( n, octets ) =
-            if n > 0 then
-                Decode.unsignedInt8
-                    |> Decode.map (\octet -> Decode.Loop ( n - 1, octet :: octets ))
-
-            else
-                Decode.succeed <| Decode.Done <| UInt64.fromBigEndianBytes octets
-    in
-    packedDecoder Bit64
-        (Decode.loop ( length, [] ) fixed64Help
-            |> Decode.map (Tuple.pair length)
-        )
+    fixed64Type <|
+        Decode.map2 (\lower upper -> Int64.fromInt32s { lower = lower, upper = upper })
+            (Decode.unsignedInt32 LE)
+            (Decode.unsignedInt32 LE)
 
 
 {-| Decode eight bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
 -}
 sfixed64 : Decoder Int64
 sfixed64 =
-    Int64.decoder LE
+    fixed64
+
+
+{-| Decode a VarInt into a data type of your choice.
+-}
+intType : DecodeVarInt intType config -> Decoder intType
+intType config =
+    packedDecoder VarInt <| pack config
+
+
+{-| Decode a VarInt into a data type of your choice.
+Applies the given zagZig function.
+-}
+sintType : DecodeVarInt intType { config | zagZig : intType -> intType } -> Decoder intType
+sintType config =
+    packedDecoder VarInt <| packWith config.zagZig config
+
+
+{-| Decode a VarInt into a data type of your choice.
+Applies the given `toUnsigned` function to make negative results positive.
+-}
+uintType : DecodeVarInt intType { config | toUnsigned : intType -> intType } -> Decoder intType
+uintType config =
+    packedDecoder VarInt <| packWith config.toUnsigned config
+
+
+{-| Decode 64 bits into a data type of your choice.
+If you are using this function make sure that you are always consuming exactly 64 bits.
+-}
+fixed64Type : Decode.Decoder int64Type -> Decoder int64Type
+fixed64Type decoder =
+    decoder
         |> Decode.map (Tuple.pair 8)
         |> packedDecoder Bit64
 
@@ -589,7 +608,8 @@ string =
 -}
 bool : Decoder Bool
 bool =
-    packedDecoder VarInt (Decode.map (Tuple.mapSecond ((/=) 0)) varIntDecoder)
+    packedDecoder VarInt <|
+        packWith ((/=) 0) Int32.config
 
 
 
@@ -748,7 +768,7 @@ stepMessage width state =
 
 tagDecoder : Decode.Decoder ( Int, ( Int, WireType ) )
 tagDecoder =
-    varIntDecoder
+    pack Int32.config
         |> Decode.andThen
             (\( usedBytes, value ) ->
                 let
@@ -764,7 +784,7 @@ tagDecoder =
                             Decode.succeed ( 0, Bit64 )
 
                         2 ->
-                            Decode.map (Tuple.mapSecond LengthDelimited) varIntDecoder
+                            Decode.map (Tuple.mapSecond LengthDelimited) (pack Int32.config)
 
                         3 ->
                             Decode.succeed ( 0, StartGroup )
@@ -780,54 +800,35 @@ tagDecoder =
             )
 
 
-varIntDecoder : Decode.Decoder ( Int, Int )
+type alias DecodeVarInt intType config =
+    { config
+        | from7BitList : List Int -> intType
+    }
+
+
+pack : DecodeVarInt intType config -> Decode.Decoder ( Int, intType )
+pack =
+    packWith identity
+
+
+packWith : (intType -> otherType) -> DecodeVarInt intType config -> Decode.Decoder ( Int, otherType )
+packWith transform config =
+    Decode.map (\sevenBitInts -> ( List.length sevenBitInts, transform <| config.from7BitList sevenBitInts )) varIntDecoder
+
+
+varIntDecoder : Decode.Decoder (List Int)
 varIntDecoder =
-    Decode.unsignedInt8
-        |> Decode.andThen
-            (\octet ->
-                if Bitwise.and 0x80 octet == 0x80 then
-                    Decode.map (\( usedBytes, value ) -> ( usedBytes + 1, Bitwise.and 0x7F octet + Bitwise.shiftLeftBy 7 value )) varIntDecoder
+    Decode.loop [] <|
+        \state ->
+            Decode.unsignedInt8
+                |> Decode.map
+                    (\octet ->
+                        if Bitwise.and 0x80 octet == 0x80 then
+                            Decode.Loop <| Bitwise.and 0x7F octet :: state
 
-                else
-                    Decode.succeed ( 1, octet )
-            )
-
-
-varInt64Decoder : Decode.Decoder ( Int, Int64 )
-varInt64Decoder =
-    Decode.unsignedInt8
-        |> Decode.andThen
-            (\octet ->
-                if Bitwise.and 0x80 octet == 0x80 then
-                    Decode.map
-                        (\( usedBytes, value ) ->
-                            ( usedBytes + 1, Int64.add (Int64.fromInt32s 0 <| Bitwise.and 0x7F octet) (Int64.shiftLeftBy 7 value) )
-                        )
-                        varInt64Decoder
-
-                else
-                    Decode.succeed ( 1, Int64.fromInt32s 0 octet )
-            )
-
-
-varUint64Decoder : Decode.Decoder ( Int, UInt64 )
-varUint64Decoder =
-    Decode.unsignedInt8
-        |> Decode.andThen
-            (\octet ->
-                if Bitwise.and 0x80 octet == 0x80 then
-                    Decode.map
-                        (\( usedBytes, value ) ->
-                            ( usedBytes + 1
-                            , UInt64.add (UInt64.fromInt24s 0 0 <| Bitwise.and 0x7F octet)
-                                (UInt64.shiftLeftBy 7 value)
-                            )
-                        )
-                        varUint64Decoder
-
-                else
-                    Decode.succeed ( 1, UInt64.fromInt32s 0 octet )
-            )
+                        else
+                            Decode.Done <| octet :: state
+                    )
 
 
 lengthDelimitedDecoder : (Int -> Decode.Decoder a) -> Decoder a
@@ -884,7 +885,7 @@ unknownFieldDecoder : WireType -> Decode.Decoder Int
 unknownFieldDecoder wireType =
     case wireType of
         VarInt ->
-            Decode.map Tuple.first varIntDecoder
+            Decode.map List.length varIntDecoder
 
         Bit64 ->
             Decode.map (always 8) (Decode.bytes 8)
@@ -900,38 +901,3 @@ unknownFieldDecoder wireType =
 
         Bit32 ->
             Decode.map (always 4) (Decode.bytes 4)
-
-
-
--- VARINT
-
-
-unsigned : Int -> Int
-unsigned value =
-    if value < 0 then
-        value + 2 ^ 32
-
-    else
-        value
-
-
-zigZag : Int -> Int
-zigZag value =
-    Bitwise.xor (Bitwise.shiftRightZfBy 1 value) (-1 * Bitwise.and 1 value)
-
-
-zigZag64 : Int64 -> Int64
-zigZag64 value =
-    Int64.xor (Int64.shiftRightZfBy 1 value) (negate64 <| Int64.and (Int64.fromInt32s 0 1) value)
-        -- necessary because of https://github.com/folkertdev/elm-int64/issues/7
-        |> repack
-
-
-repack : Int64 -> Int64
-repack =
-    Int64.complement >> Int64.complement
-
-
-negate64 : Int64 -> Int64
-negate64 =
-    Int64.subtract (Int64.fromInt32s 0 0)

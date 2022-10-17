@@ -1,12 +1,11 @@
 module DecodeTest exposing (suite)
 
 import Expect
-import Fuzz
-import Int64 exposing (Int64)
 import Protobuf.Decode as Decode
 import Protobuf.Encode as Encode
+import Internal.Int64 as Int64
 import Test exposing (..)
-import UInt64
+import Util exposing (int64)
 
 
 suite : Test
@@ -82,55 +81,35 @@ suite =
                         |> Expect.equal (Just commentValue)
             ]
         , describe "integers"
-            [ fuzz2 Fuzz.int Fuzz.int "int64" <|
-                \lower upper ->
-                    let
-                        i64 =
-                            Int64.fromInt32s lower upper
-                    in
+            [ fuzz int64 "int64" <|
+                \i64 ->
                     Encode.message [ ( 1, Encode.int64 i64 ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message zero64 [ Decode.optional 1 Decode.int64 setSelf ])
+                        |> Decode.decode (Decode.message Int64.zero [ Decode.optional 1 Decode.int64 setSelf ])
                         |> Expect.equal (Just i64)
-            , fuzz2 Fuzz.int Fuzz.int "sint64" <|
-                \lower upper ->
-                    let
-                        i64 =
-                            Int64.fromInt32s lower upper
-                    in
+            , fuzz int64 "sint64" <|
+                \i64 ->
                     Encode.message [ ( 1, Encode.sint64 i64 ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message zero64 [ Decode.optional 1 Decode.sint64 setSelf ])
+                        |> Decode.decode (Decode.message Int64.zero [ Decode.optional 1 Decode.sint64 setSelf ])
                         |> Expect.equal (Just i64)
-            , fuzz2 Fuzz.int Fuzz.int "uint64" <|
-                \lower upper ->
-                    let
-                        ui64 =
-                            UInt64.fromInt32s lower upper
-                    in
+            , fuzz int64 "uint64" <|
+                \ui64 ->
                     Encode.message [ ( 1, Encode.uint64 ui64 ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message UInt64.zero [ Decode.optional 1 Decode.uint64 setSelf ])
+                        |> Decode.decode (Decode.message Int64.zero [ Decode.optional 1 Decode.uint64 setSelf ])
                         |> Expect.equal (Just ui64)
-            , fuzz2 Fuzz.int Fuzz.int "fixed64" <|
-                \lower upper ->
-                    let
-                        f64 =
-                            UInt64.fromInt32s lower upper
-                    in
+            , fuzz int64 "fixed64" <|
+                \f64 ->
                     Encode.message [ ( 1, Encode.fixed64 f64 ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message UInt64.zero [ Decode.optional 1 Decode.fixed64 setSelf ])
+                        |> Decode.decode (Decode.message Int64.zero [ Decode.optional 1 Decode.fixed64 setSelf ])
                         |> Expect.equal (Just f64)
-            , fuzz2 Fuzz.int Fuzz.int "sfixed64" <|
-                \lower upper ->
-                    let
-                        f64 =
-                            Int64.fromInt32s lower upper
-                    in
+            , fuzz int64 "sfixed64" <|
+                \f64 ->
                     Encode.message [ ( 1, Encode.sfixed64 f64 ) ]
                         |> Encode.encode
-                        |> Decode.decode (Decode.message zero64 [ Decode.optional 1 Decode.sfixed64 setSelf ])
+                        |> Decode.decode (Decode.message Int64.zero [ Decode.optional 1 Decode.sfixed64 setSelf ])
                         |> Expect.equal (Just f64)
             ]
         ]
@@ -196,12 +175,3 @@ commentDecoder =
             (unwrapResponses << .responses)
             (setResponses << Responses)
         ]
-
-
-
--- integers
-
-
-zero64 : Int64
-zero64 =
-    Int64.fromInt32s 0 0

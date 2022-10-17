@@ -66,9 +66,9 @@ import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
-import Int64 exposing (Int64)
 import Internal.Protobuf exposing (WireType(..))
-import UInt64 exposing (UInt64)
+import Internal.Int32 as Int32
+import Internal.Int64 as Int64 exposing (Int64)
 
 
 
@@ -219,7 +219,7 @@ Note that for `proto2` the `Unrecognized Int` field can be left out.
 -}
 int32 : Int -> Encoder
 int32 =
-    Encoder VarInt << varInt
+    intType Int32.config
 
 
 {-| Encode integers from `0` to `4294967295` into a message.
@@ -231,7 +231,7 @@ Uses variable-length encoding.
 -}
 uint32 : Int -> Encoder
 uint32 =
-    Encoder VarInt << varInt << unsigned
+    uintType Int32.config
 
 
 {-| Encode integers from `-2147483648` to `2147483647` into a message. Uses
@@ -245,7 +245,7 @@ efficiently than [`int32`](#int32).
 -}
 sint32 : Int -> Encoder
 sint32 =
-    Encoder VarInt << varInt << zigZag
+    sintType Int32.config
 
 
 {-| Encode integers from `0` to `4294967295` into a message. Always four bytes.
@@ -280,7 +280,7 @@ field is likely to have negative values, use [`sint64`](#sint64) instead.
 -}
 int64 : Int64 -> Encoder
 int64 =
-    Encoder VarInt << varInt64
+    intType Int64.config
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message. Uses
@@ -289,31 +289,66 @@ efficiently than [`int64`](#int64).
 -}
 sint64 : Int64 -> Encoder
 sint64 =
-    Encoder VarInt << varInt64 << zigZag64
+    sintType Int64.config
 
 
 {-| Encode integers from `0` to `18446744073709551615` into a message.
 Uses variable-length encoding.
 -}
-uint64 : UInt64 -> Encoder
+uint64 : Int64 -> Encoder
 uint64 =
-    Encoder VarInt << varUint64
+    uintType Int64.config
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message.
 Always eight bytes.
 -}
 sfixed64 : Int64 -> Encoder
-sfixed64 v =
-    Encoder Bit64 ( 8, Int64.encoder LE v )
+sfixed64 =
+    fixedType64 <|
+        Int64.toInt32s
+            >> (\{ lower, upper } ->
+                    Encode.sequence
+                        [ Encode.unsignedInt32 LE lower
+                        , Encode.unsignedInt32 LE upper
+                        ]
+               )
 
 
 {-| Encode integers from `0` to `18446744073709551615` into a message.
 Always eight bytes.
 -}
-fixed64 : UInt64 -> Encoder
-fixed64 v =
-    Encoder Bit64 ( 8, UInt64.toBigEndianBytes v |> List.reverse |> List.map Encode.unsignedInt8 |> Encode.sequence )
+fixed64 : Int64 -> Encoder
+fixed64 =
+    sfixed64
+
+
+{-| Encode a data type of your choice into a VarInt.
+-}
+intType : EncodeVarInt intType config -> intType -> Encoder
+intType config =
+    Encoder VarInt << varInt config
+
+
+{-| Encode a data type of your choice into a VarInt.
+Applies the given `zigZag` function to optimize for negative values.
+-}
+sintType : EncodeVarInt intType { config | zigZag : intType -> intType } -> intType -> Encoder
+sintType config =
+    intType config << config.zigZag
+
+
+{-| Encode a data type of your choice into a VarInt.
+Applies the given `fromUnsigned` to convert unsigned to signed values.
+-}
+uintType : EncodeVarInt intType { config | fromUnsigned : intType -> intType } -> intType -> Encoder
+uintType config =
+    intType config << config.fromUnsigned
+
+
+fixedType64 : (intType -> Encode.Encoder) -> intType -> Encoder
+fixedType64 encoder =
+    encoder >> Tuple.pair 8 >> Encoder Bit64
 
 
 
@@ -379,12 +414,12 @@ string v =
 -}
 bool : Bool -> Encoder
 bool v =
-    Encoder VarInt <|
+    int32 <|
         if v then
-            varInt 1
+            1
 
         else
-            varInt 0
+            0
 
 
 
@@ -583,7 +618,7 @@ tag : Int -> WireType -> ( Int, Encode.Encoder )
 tag fieldNumber wireType =
     let
         encodeTag base4 =
-            varInt (Bitwise.or (Bitwise.shiftLeftBy 3 fieldNumber) base4)
+            varInt32 (Bitwise.or (Bitwise.shiftLeftBy 3 fieldNumber) base4)
     in
     case wireType of
         VarInt ->
@@ -593,7 +628,7 @@ tag fieldNumber wireType =
             encodeTag 1
 
         LengthDelimited width ->
-            sequence [ encodeTag 2, varInt width ]
+            sequence [ encodeTag 2, varInt32 width ]
 
         StartGroup ->
             encodeTag 3
@@ -609,116 +644,21 @@ tag fieldNumber wireType =
 -- VARINT
 
 
-varInt : Int -> ( Int, Encode.Encoder )
-varInt value =
+varInt32 : Int -> ( Int, Encode.Encoder )
+varInt32 =
+    varInt Int32.config
+
+
+varInt : EncodeVarInt intType config -> intType -> ( Int, Encode.Encoder )
+varInt config value =
     let
         encoders =
-            toVarIntEncoders value
+            config.to7BitList value |> List.map Encode.unsignedInt8
     in
     ( List.length encoders, Encode.sequence encoders )
 
 
-varInt64 : Int64 -> ( Int, Encode.Encoder )
-varInt64 value =
-    let
-        encoders =
-            toVarInt64Encoders value
-    in
-    ( List.length encoders, Encode.sequence encoders )
-
-
-varUint64 : UInt64 -> ( Int, Encode.Encoder )
-varUint64 value =
-    let
-        encoders =
-            toVarUint64Encoders value
-    in
-    ( List.length encoders, Encode.sequence encoders )
-
-
-unsigned : Int -> Int
-unsigned value =
-    if value >= 2 ^ 31 then
-        value - 2 ^ 32
-
-    else
-        value
-
-
-zigZag : Int -> Int
-zigZag value =
-    Bitwise.xor (Bitwise.shiftRightBy 31 value) (Bitwise.shiftLeftBy 1 value)
-
-
-zigZag64 : Int64 -> Int64
-zigZag64 value =
-    -- Int64 Lib currently does not implement `shiftRightBy`, so this is used as a (less efficient) replacement.
-    Int64.xor (Int64.shiftRightZfBy 63 value |> Int64.complement |> Int64.add (Int64.fromInt 1))
-        (Int64.shiftLeftBy 1 value)
-
-
-toVarIntEncoders : Int -> List Encode.Encoder
-toVarIntEncoders value =
-    let
-        base128 =
-            Bitwise.and 0x7F value
-
-        higherBits =
-            Bitwise.shiftRightZfBy 7 value
-    in
-    if higherBits /= 0x00 then
-        Encode.unsignedInt8 (Bitwise.or 0x80 base128) :: toVarIntEncoders higherBits
-
-    else
-        [ Encode.unsignedInt8 base128 ]
-
-
-toVarInt64Encoders : Int64 -> List Encode.Encoder
-toVarInt64Encoders value =
-    let
-        base128 =
-            Int64.and (Int64.fromInt 0x7F) value
-
-        higherBits =
-            Int64.shiftRightZfBy 7 value
-    in
-    if higherBits /= Int64.fromInt 0 then
-        Encode.unsignedInt8 (Bitwise.or 0x80 <| lastByte base128) :: toVarInt64Encoders higherBits
-
-    else
-        [ Encode.unsignedInt8 <| lastByte base128 ]
-
-
-toVarUint64Encoders : UInt64 -> List Encode.Encoder
-toVarUint64Encoders value =
-    let
-        ( _, _, base128 ) =
-            UInt64.and (UInt64.fromInt24s 0 0 0x7F) value
-                |> UInt64.toInt24s
-
-        higherBits =
-            UInt64.shiftRightZfBy 7 value
-    in
-    if UInt64.isZero higherBits then
-        [ Encode.unsignedInt8 base128 ]
-
-    else
-        Encode.unsignedInt8 (Bitwise.or 0x80 base128) :: toVarUint64Encoders higherBits
-
-
-lastByte : Int64 -> Int
-lastByte =
-    Int64.toByteValues >> last
-
-
-last : List Int -> Int
-last items =
-    case items of
-        [] ->
-            0
-
-        [ x ] ->
-            x
-
-        _ :: rest ->
-            last rest
+type alias EncodeVarInt intType config =
+    { config
+        | to7BitList : intType -> List Int
+    }

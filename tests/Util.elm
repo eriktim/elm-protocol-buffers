@@ -1,4 +1,4 @@
-module Util exposing (bytes, dict, expectMessage, fieldNumber, float32, int32, uint32)
+module Util exposing (bytes, dict, expectMessage, fieldNumber, float32, int32, int64, uint32)
 
 import Bytes
 import Bytes.Decode
@@ -8,6 +8,7 @@ import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer, float, list)
 import Protobuf.Decode as Decode
 import Protobuf.Encode as Encode
+import Internal.Int64 as Int64 exposing (Int64)
 
 
 
@@ -22,6 +23,11 @@ fieldNumber =
 int32 : Fuzzer Int
 int32 =
     Fuzz.intRange (-2 ^ 31) (2 ^ 31 - 1)
+
+
+int64 : Fuzzer Int64
+int64 =
+    Fuzz.map2 (\lower upper -> Int64.fromInt32s { lower = lower, upper = upper }) int32 int32
 
 
 uint32 : Fuzzer Int

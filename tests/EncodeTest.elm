@@ -4,10 +4,9 @@ import Bytes.Encode
 import Dict
 import Expect exposing (Expectation)
 import Hex
-import Int64 exposing (Int64)
 import Protobuf.Encode as Encode
+import Internal.Int64 as Int64
 import Test exposing (..)
-import UInt64 exposing (UInt64)
 
 
 suite : Test
@@ -40,85 +39,75 @@ suite =
                 |> test "a negative sfixed32"
             , Encode.message
                 [ ( 1
-                  , Encode.int64
-                        (Int64.fromInt 2147483647
-                            |> int64Times 3
-                        )
+                  , Encode.int64 <|
+                        Int64.fromInt32s { lower = 2147483645, upper = 1 }
                   )
                 ]
                 |> expectBytes "08FDFFFFFF17"
                 |> test "an int64"
             , Encode.message
                 [ ( 1
-                  , Encode.int64
-                        (Int64.fromInt -12345)
+                  , Encode.int64 <| Int64.fromInt32s { upper = 4294967295, lower = 4294954951 }
                   )
                 ]
                 |> expectBytes "08C79FFFFFFFFFFFFFFF01"
                 |> test "a negative int64"
             , Encode.message
-                [ ( 1, Encode.uint64 (UInt64.fromInt 2345678) ) ]
+                [ ( 1, Encode.uint64 <| Int64.fromInt32s { upper = 0, lower = 2345678 } ) ]
                 |> expectBytes "08CE958F01"
                 |> test "an uint64"
             , Encode.message
-                [ ( 1, Encode.uint64 UInt64.maxValue ) ]
+                [ ( 1, Encode.uint64 <| Int64.fromInt32s { upper = 0xFFFFFFFF, lower = 0xFFFFFFFF } ) ]
                 |> expectBytes "08FFFFFFFFFFFFFFFFFF01"
                 |> test "a large uint64"
             , Encode.message
                 [ ( 1
-                  , Encode.sint64
-                        (Int64.fromInt 2147483647
-                            |> int64Times 3
-                        )
+                  , Encode.sint64 <|
+                        Int64.fromInt32s
+                            { lower = 2147483645, upper = 1 }
                   )
                 ]
                 |> expectBytes "08FAFFFFFF2F"
                 |> test "a sint64"
             , Encode.message
                 [ ( 1
-                  , Encode.sint64
-                        (Int64.fromInt -12345)
+                  , Encode.sint64 <|
+                        Int64.fromInt32s { upper = -1, lower = -12345 }
                   )
                 ]
                 |> expectBytes "08F1C001"
                 |> test "a negative sint64"
             , Encode.message
                 [ ( 1
-                  , Encode.sfixed64
-                        (Int64.fromInt 2147483647
-                            |> int64Times 3
-                        )
+                  , Encode.sfixed64 <|
+                        Int64.fromInt32s { lower = 2147483645, upper = 1 }
                   )
                 ]
                 |> expectBytes "09FDFFFF7F01000000"
                 |> test "a sfixed64"
             , Encode.message
                 [ ( 1
-                  , Encode.sfixed64
-                        (Int64.fromInt -2147483647
-                            |> int64Times 3
-                        )
+                  , Encode.sfixed64 <|
+                        Int64.fromInt32s { lower = -2147483645, upper = -1 }
                   )
                 ]
-                |> expectBytes "0903000080FEFFFFFF"
+                |> expectBytes "0903000080FFFFFFFF"
                 |> test "a negative sfixed64"
             , Encode.message
                 [ ( 1
-                  , Encode.fixed64
-                        (UInt64.fromInt 2147483647
-                            |> uint64Times 3
-                        )
+                  , Encode.fixed64 <|
+                        Int64.fromInt32s { lower = 2147483645, upper = 1 }
                   )
                 ]
                 |> expectBytes "09FDFFFF7F01000000"
                 |> test "a fixed64"
             , Encode.message
                 [ ( 1
-                  , Encode.fixed64
-                        (UInt64.fromInt32s 0x11223344 0xAABBCCDD)
+                  , Encode.fixed64 <|
+                        Int64.fromInt32s { lower = 0x11223344, upper = 0xAABBCCDD }
                   )
                 ]
-                |> expectBytes "09DDCCBBAA44332211"
+                |> expectBytes "0944332211DDCCBBAA"
                 |> test "a large fixed64"
             ]
         , describe "floats"
@@ -177,21 +166,3 @@ suite =
 expectBytes : String -> Encode.Encoder -> () -> Expectation
 expectBytes hex encoder _ =
     Expect.equal (Hex.fromBytes <| Encode.encode encoder) hex
-
-
-int64Times : Int -> Int64 -> Int64
-int64Times n i =
-    if n == 0 then
-        Int64.fromInt 0
-
-    else
-        Int64.add i <| int64Times (n - 1) i
-
-
-uint64Times : Int -> UInt64 -> UInt64
-uint64Times n i =
-    if n == 0 then
-        UInt64.fromInt 0
-
-    else
-        UInt64.add i <| uint64Times (n - 1) i
