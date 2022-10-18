@@ -66,9 +66,9 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode
 import Dict exposing (Dict)
 import Http
-import Internal.Protobuf exposing (WireType(..))
 import Internal.Int32 as Int32
-import Internal.Int64 as Int64 exposing (Int32s, Int64)
+import Internal.Int64 as Int64 exposing (Int64)
+import Internal.Protobuf exposing (WireType(..))
 import Set
 
 

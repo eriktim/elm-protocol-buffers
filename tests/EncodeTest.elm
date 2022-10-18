@@ -4,8 +4,8 @@ import Bytes.Encode
 import Dict
 import Expect exposing (Expectation)
 import Hex
-import Protobuf.Encode as Encode
 import Internal.Int64 as Int64
+import Protobuf.Encode as Encode
 import Test exposing (..)
 
 

@@ -66,9 +66,9 @@ import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
-import Internal.Protobuf exposing (WireType(..))
 import Internal.Int32 as Int32
 import Internal.Int64 as Int64 exposing (Int64)
+import Internal.Protobuf exposing (WireType(..))
 
 
 

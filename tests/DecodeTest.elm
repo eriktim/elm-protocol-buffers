@@ -1,9 +1,9 @@
 module DecodeTest exposing (suite)
 
 import Expect
+import Internal.Int64 as Int64
 import Protobuf.Decode as Decode
 import Protobuf.Encode as Encode
-import Internal.Int64 as Int64
 import Test exposing (..)
 import Util exposing (int64)
 

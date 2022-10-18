@@ -6,9 +6,9 @@ import Bytes.Encode
 import Dict exposing (Dict)
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer, float, list)
+import Internal.Int64 as Int64 exposing (Int64)
 import Protobuf.Decode as Decode
 import Protobuf.Encode as Encode
-import Internal.Int64 as Int64 exposing (Int64)
 
 
 
