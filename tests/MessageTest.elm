@@ -23,6 +23,14 @@ suite =
                 expectMessage Encode.fixed32 Decode.fixed32
             , fuzz int32 "fixed-size integers" <|
                 expectMessage Encode.sfixed32 Decode.sfixed32
+            , fuzz int64 "64-bit unsigned integers" <|
+                expectMessage Encode.uint64 Decode.uint64
+            , fuzz int64 "64-bit encoded integers" <|
+                expectMessage Encode.sint64 Decode.sint64
+            , fuzz int64 "64-bit fixed-size unsigned integers" <|
+                expectMessage Encode.fixed64 Decode.fixed64
+            , fuzz int64 "64-bit fixed-site integers" <|
+                expectMessage Encode.sfixed64 Decode.sfixed64
             ]
         , describe "all floats"
             [ fuzz float "doubles" <|

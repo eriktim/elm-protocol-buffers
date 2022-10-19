@@ -1,11 +1,9 @@
 module DecodeTest exposing (suite)
 
 import Expect
-import Internal.Int64 as Int64
 import Protobuf.Decode as Decode
 import Protobuf.Encode as Encode
 import Test exposing (..)
-import Util exposing (int64)
 
 
 suite : Test
@@ -79,38 +77,6 @@ suite =
                         |> Encode.encode
                         |> Decode.decode commentDecoder
                         |> Expect.equal (Just commentValue)
-            ]
-        , describe "integers"
-            [ fuzz int64 "int64" <|
-                \i64 ->
-                    Encode.message [ ( 1, Encode.int64 i64 ) ]
-                        |> Encode.encode
-                        |> Decode.decode (Decode.message Int64.zero [ Decode.optional 1 Decode.int64 setSelf ])
-                        |> Expect.equal (Just i64)
-            , fuzz int64 "sint64" <|
-                \i64 ->
-                    Encode.message [ ( 1, Encode.sint64 i64 ) ]
-                        |> Encode.encode
-                        |> Decode.decode (Decode.message Int64.zero [ Decode.optional 1 Decode.sint64 setSelf ])
-                        |> Expect.equal (Just i64)
-            , fuzz int64 "uint64" <|
-                \ui64 ->
-                    Encode.message [ ( 1, Encode.uint64 ui64 ) ]
-                        |> Encode.encode
-                        |> Decode.decode (Decode.message Int64.zero [ Decode.optional 1 Decode.uint64 setSelf ])
-                        |> Expect.equal (Just ui64)
-            , fuzz int64 "fixed64" <|
-                \f64 ->
-                    Encode.message [ ( 1, Encode.fixed64 f64 ) ]
-                        |> Encode.encode
-                        |> Decode.decode (Decode.message Int64.zero [ Decode.optional 1 Decode.fixed64 setSelf ])
-                        |> Expect.equal (Just f64)
-            , fuzz int64 "sfixed64" <|
-                \f64 ->
-                    Encode.message [ ( 1, Encode.sfixed64 f64 ) ]
-                        |> Encode.encode
-                        |> Decode.decode (Decode.message Int64.zero [ Decode.optional 1 Decode.sfixed64 setSelf ])
-                        |> Expect.equal (Just f64)
             ]
         ]
 
