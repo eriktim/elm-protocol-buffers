@@ -27,7 +27,7 @@ values.
 
 # Integers
 
-@docs int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64, intType, uintType, sintType, fixed64Type
+@docs int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
 
 
 # Floats
@@ -469,21 +469,21 @@ oneOf decoders set =
 -}
 int32 : Decoder Int
 int32 =
-    intType Int32.config
+    intDecoder Int32.config
 
 
 {-| Decode a variable number of bytes into an integer from 0 to 4294967295.
 -}
 uint32 : Decoder Int
 uint32 =
-    uintType Int32.config
+    uintDecoder Int32.config
 
 
 {-| Decode a variable number of bytes into an integer from -2147483648 to 2147483647.
 -}
 sint32 : Decoder Int
 sint32 =
-    sintType Int32.config
+    sintDecoder Int32.config
 
 
 {-| Decode four bytes into an integer from 0 to 4294967295.
@@ -504,28 +504,28 @@ sfixed32 =
 -}
 int64 : Decoder Int64
 int64 =
-    intType Int64.config
+    intDecoder Int64.config
 
 
 {-| Decode a variable number of bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
 -}
 sint64 : Decoder Int64
 sint64 =
-    sintType Int64.config
+    sintDecoder Int64.config
 
 
 {-| Decode a variable number of bytes into an integer from `0` to `18446744073709551615`.
 -}
 uint64 : Decoder Int64
 uint64 =
-    uintType Int64.config
+    uintDecoder Int64.config
 
 
 {-| Decode a eight bytes into an integer from `0` to `18446744073709551615`.
 -}
 fixed64 : Decoder Int64
 fixed64 =
-    fixed64Type <|
+    fixed64Decoder <|
         Decode.map2 (\lower upper -> Int64.fromInt32s { lower = lower, upper = upper })
             (Decode.unsignedInt32 LE)
             (Decode.unsignedInt32 LE)
@@ -540,32 +540,32 @@ sfixed64 =
 
 {-| Decode a VarInt into a data type of your choice.
 -}
-intType : DecodeVarInt intType config -> Decoder intType
-intType config =
-    packedDecoder VarInt <| pack config
+intDecoder : DecodeVarInt intType config -> Decoder intType
+intDecoder config =
+    pack config |> packedDecoder VarInt
 
 
 {-| Decode a VarInt into a data type of your choice.
 Applies the given zagZig function.
 -}
-sintType : DecodeVarInt intType { config | zagZig : intType -> intType } -> Decoder intType
-sintType config =
-    packedDecoder VarInt <| packWith config.zagZig config
+sintDecoder : DecodeVarInt intType { config | zagZig : intType -> intType } -> Decoder intType
+sintDecoder config =
+    packWith config.zagZig config |> packedDecoder VarInt
 
 
 {-| Decode a VarInt into a data type of your choice.
 Applies the given `toUnsigned` function to make negative results positive.
 -}
-uintType : DecodeVarInt intType { config | toUnsigned : intType -> intType } -> Decoder intType
-uintType config =
-    packedDecoder VarInt <| packWith config.toUnsigned config
+uintDecoder : DecodeVarInt intType { config | toUnsigned : intType -> intType } -> Decoder intType
+uintDecoder config =
+    packWith config.toUnsigned config |> packedDecoder VarInt
 
 
 {-| Decode 64 bits into a data type of your choice.
 If you are using this function make sure that you are always consuming exactly 64 bits.
 -}
-fixed64Type : Decode.Decoder int64Type -> Decoder int64Type
-fixed64Type decoder =
+fixed64Decoder : Decode.Decoder int64Type -> Decoder int64Type
+fixed64Decoder decoder =
     decoder
         |> Decode.map (Tuple.pair 8)
         |> packedDecoder Bit64
@@ -608,8 +608,8 @@ string =
 -}
 bool : Decoder Bool
 bool =
-    packedDecoder VarInt <|
-        packWith ((/=) 0) Int32.config
+    packWith ((/=) 0) Int32.config
+        |> packedDecoder VarInt
 
 
 
@@ -813,7 +813,7 @@ pack =
 
 packWith : (intType -> otherType) -> DecodeVarInt intType config -> Decode.Decoder ( Int, otherType )
 packWith transform config =
-    Decode.map (\sevenBitInts -> ( List.length sevenBitInts, transform <| config.from7BitList sevenBitInts )) varIntDecoder
+    Decode.map (\sevenBitInts -> ( List.length sevenBitInts, config.from7BitList sevenBitInts |> transform )) varIntDecoder
 
 
 varIntDecoder : Decode.Decoder (List Int)

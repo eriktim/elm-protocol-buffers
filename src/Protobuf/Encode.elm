@@ -143,7 +143,8 @@ encode encoder =
                 |> Encode.encode
 
         NoEncoder ->
-            Encode.encode <| Encode.sequence []
+            Encode.sequence []
+                |> Encode.encode
 
 
 {-| Encode a record into a message. For this you need to provide a list of
@@ -219,7 +220,7 @@ Note that for `proto2` the `Unrecognized Int` field can be left out.
 -}
 int32 : Int -> Encoder
 int32 =
-    intType Int32.config
+    intEncoder Int32.config
 
 
 {-| Encode integers from `0` to `4294967295` into a message.
@@ -231,7 +232,7 @@ Uses variable-length encoding.
 -}
 uint32 : Int -> Encoder
 uint32 =
-    uintType Int32.config
+    uintEncoder Int32.config
 
 
 {-| Encode integers from `-2147483648` to `2147483647` into a message. Uses
@@ -245,7 +246,7 @@ efficiently than [`int32`](#int32).
 -}
 sint32 : Int -> Encoder
 sint32 =
-    sintType Int32.config
+    sintEncoder Int32.config
 
 
 {-| Encode integers from `0` to `4294967295` into a message. Always four bytes.
@@ -280,7 +281,7 @@ field is likely to have negative values, use [`sint64`](#sint64) instead.
 -}
 int64 : Int64 -> Encoder
 int64 =
-    intType Int64.config
+    intEncoder Int64.config
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message. Uses
@@ -289,7 +290,7 @@ efficiently than [`int64`](#int64).
 -}
 sint64 : Int64 -> Encoder
 sint64 =
-    sintType Int64.config
+    sintEncoder Int64.config
 
 
 {-| Encode integers from `0` to `18446744073709551615` into a message.
@@ -297,7 +298,7 @@ Uses variable-length encoding.
 -}
 uint64 : Int64 -> Encoder
 uint64 =
-    uintType Int64.config
+    uintEncoder Int64.config
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message.
@@ -305,7 +306,7 @@ Always eight bytes.
 -}
 sfixed64 : Int64 -> Encoder
 sfixed64 =
-    fixedType64 <|
+    fixedEncoder <|
         Int64.toInt32s
             >> (\{ lower, upper } ->
                     Encode.sequence
@@ -325,29 +326,29 @@ fixed64 =
 
 {-| Encode a data type of your choice into a VarInt.
 -}
-intType : EncodeVarInt intType config -> intType -> Encoder
-intType config =
+intEncoder : EncodeVarInt intType config -> intType -> Encoder
+intEncoder config =
     Encoder VarInt << varInt config
 
 
 {-| Encode a data type of your choice into a VarInt.
 Applies the given `zigZag` function to optimize for negative values.
 -}
-sintType : EncodeVarInt intType { config | zigZag : intType -> intType } -> intType -> Encoder
-sintType config =
-    intType config << config.zigZag
+sintEncoder : EncodeVarInt intType { config | zigZag : intType -> intType } -> intType -> Encoder
+sintEncoder config =
+    intEncoder config << config.zigZag
 
 
 {-| Encode a data type of your choice into a VarInt.
 Applies the given `fromUnsigned` to convert unsigned to signed values.
 -}
-uintType : EncodeVarInt intType { config | fromUnsigned : intType -> intType } -> intType -> Encoder
-uintType config =
-    intType config << config.fromUnsigned
+uintEncoder : EncodeVarInt intType { config | fromUnsigned : intType -> intType } -> intType -> Encoder
+uintEncoder config =
+    intEncoder config << config.fromUnsigned
 
 
-fixedType64 : (intType -> Encode.Encoder) -> intType -> Encoder
-fixedType64 encoder =
+fixedEncoder : (intType -> Encode.Encoder) -> intType -> Encoder
+fixedEncoder encoder =
     encoder >> Tuple.pair 8 >> Encoder Bit64
 
 
@@ -560,9 +561,9 @@ sequence : List ( Int, Encode.Encoder ) -> ( Int, Encode.Encoder )
 sequence items =
     let
         width =
-            List.sum <| List.map Tuple.first items
+            List.map Tuple.first items |> List.sum
     in
-    ( width, Encode.sequence <| List.map Tuple.second items )
+    ( width, List.map Tuple.second items |> Encode.sequence )
 
 
 toKeyValuePairEncoder : ( Int, Encoder ) -> ( Int, Encode.Encoder )

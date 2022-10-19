@@ -57,7 +57,7 @@ zigZag value =
 
 zagZig : Int64 -> Int64
 zagZig value =
-    xor (shiftRightZfBy 1 value) (negate <| andInt 1 value)
+    xor (shiftRightZfBy 1 value) (value |> andInt 1 |> negate)
 
 
 to7BitList : Int64 -> List Int
