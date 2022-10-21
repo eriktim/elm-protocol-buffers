@@ -538,29 +538,6 @@ sfixed64 =
     fixed64
 
 
-{-| Decode a VarInt into a data type of your choice.
--}
-intDecoder : DecodeVarInt intType config -> Decoder intType
-intDecoder config =
-    pack config |> packedDecoder VarInt
-
-
-{-| Decode a VarInt into a data type of your choice.
-Applies the given zagZig function.
--}
-sintDecoder : DecodeVarInt intType { config | zagZig : intType -> intType } -> Decoder intType
-sintDecoder config =
-    packWith config.zagZig config |> packedDecoder VarInt
-
-
-{-| Decode a VarInt into a data type of your choice.
-Applies the given `toUnsigned` function to make negative results positive.
--}
-uintDecoder : DecodeVarInt intType { config | toUnsigned : intType -> intType } -> Decoder intType
-uintDecoder config =
-    packWith config.toUnsigned config |> packedDecoder VarInt
-
-
 {-| Decode 64 bits into a data type of your choice.
 If you are using this function make sure that you are always consuming exactly 64 bits.
 -}
@@ -814,6 +791,21 @@ pack =
 packWith : (intType -> otherType) -> DecodeVarInt intType config -> Decode.Decoder ( Int, otherType )
 packWith transform config =
     Decode.map (\sevenBitInts -> ( List.length sevenBitInts, config.from7BitList sevenBitInts |> transform )) varIntDecoder
+
+
+intDecoder : DecodeVarInt intType config -> Decoder intType
+intDecoder config =
+    pack config |> packedDecoder VarInt
+
+
+sintDecoder : DecodeVarInt intType { config | zagZig : intType -> intType } -> Decoder intType
+sintDecoder config =
+    packWith config.zagZig config |> packedDecoder VarInt
+
+
+uintDecoder : DecodeVarInt intType { config | toUnsigned : intType -> intType } -> Decoder intType
+uintDecoder config =
+    packWith config.toUnsigned config |> packedDecoder VarInt
 
 
 varIntDecoder : Decode.Decoder (List Int)

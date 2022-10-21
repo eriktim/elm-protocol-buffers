@@ -324,29 +324,6 @@ fixed64 =
     sfixed64
 
 
-{-| Encode a data type of your choice into a VarInt.
--}
-intEncoder : EncodeVarInt intType config -> intType -> Encoder
-intEncoder config =
-    Encoder VarInt << varInt config
-
-
-{-| Encode a data type of your choice into a VarInt.
-Applies the given `zigZag` function to optimize for negative values.
--}
-sintEncoder : EncodeVarInt intType { config | zigZag : intType -> intType } -> intType -> Encoder
-sintEncoder config =
-    intEncoder config << config.zigZag
-
-
-{-| Encode a data type of your choice into a VarInt.
-Applies the given `fromUnsigned` to convert unsigned to signed values.
--}
-uintEncoder : EncodeVarInt intType { config | fromUnsigned : intType -> intType } -> intType -> Encoder
-uintEncoder config =
-    intEncoder config << config.fromUnsigned
-
-
 fixedEncoder : (intType -> Encode.Encoder) -> intType -> Encoder
 fixedEncoder encoder =
     encoder >> Tuple.pair 8 >> Encoder Bit64
@@ -643,6 +620,21 @@ tag fieldNumber wireType =
 
 
 -- VARINT
+
+
+intEncoder : EncodeVarInt intType config -> intType -> Encoder
+intEncoder config =
+    Encoder VarInt << varInt config
+
+
+sintEncoder : EncodeVarInt intType { config | zigZag : intType -> intType } -> intType -> Encoder
+sintEncoder config =
+    intEncoder config << config.zigZag
+
+
+uintEncoder : EncodeVarInt intType { config | fromUnsigned : intType -> intType } -> intType -> Encoder
+uintEncoder config =
+    intEncoder config << config.fromUnsigned
 
 
 varInt32 : Int -> ( Int, Encode.Encoder )
