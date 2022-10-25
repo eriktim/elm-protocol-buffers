@@ -66,7 +66,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode
 import Dict exposing (Dict)
 import Http
-import Internal.IntOperations exposing (int32Operations, int64Operations)
+import Internal.IntOperations exposing (IntOperations, int32Operations, int64Operations)
 import Internal.Protobuf exposing (WireType(..))
 import Protobuf.Types.Int64 as Int64 exposing (Int64)
 import Set
@@ -777,40 +777,33 @@ tagDecoder =
             )
 
 
-type alias DecodeVarInt intType config =
-    { config
-        | add7Bit : Int -> intType -> intType
-        , zero : intType
-    }
-
-
-pack : DecodeVarInt intType config -> Decode.Decoder ( Int, intType )
+pack : IntOperations int -> Decode.Decoder ( Int, int )
 pack =
     packWith identity
 
 
-packWith : (intType -> otherType) -> DecodeVarInt intType config -> Decode.Decoder ( Int, otherType )
+packWith : (int -> a) -> IntOperations int -> Decode.Decoder ( Int, a )
 packWith transform config =
     varIntDecoder config
         |> Decode.map (Tuple.mapSecond transform)
 
 
-intDecoder : DecodeVarInt intType config -> Decoder intType
+intDecoder : IntOperations int -> Decoder int
 intDecoder config =
     pack config |> packedDecoder VarInt
 
 
-sintDecoder : DecodeVarInt intType { config | zagZig : intType -> intType } -> Decoder intType
+sintDecoder : IntOperations int -> Decoder int
 sintDecoder config =
     packWith config.zagZig config |> packedDecoder VarInt
 
 
-uintDecoder : DecodeVarInt intType { config | toUnsigned : intType -> intType } -> Decoder intType
+uintDecoder : IntOperations int -> Decoder int
 uintDecoder config =
     packWith config.toUnsigned config |> packedDecoder VarInt
 
 
-varIntDecoder : DecodeVarInt int config -> Decode.Decoder ( Int, int )
+varIntDecoder : IntOperations int -> Decode.Decoder ( Int, int )
 varIntDecoder config =
     Decode.unsignedInt8
         |> Decode.andThen
