@@ -26,30 +26,35 @@ please use one of the available packages providing what you need and convert wit
 
 -}
 
-import Internal.Int64
+import Bitwise
 
 
 {-| The `Int64` data type. Guarantees the invariant that the internal integers are kept between `-2 ^ 31` and `2 ^ 31 - 1`.
 -}
-type alias Int64 =
-    Internal.Int64.Int64
+type Int64
+    = Int64 Int32s
 
 
 {-| A record containing two `Int` values, one for the lower 32 bits and one for the upper 32 bits.
 -}
 type alias Int32s =
-    Internal.Int64.Int32s
+    { lower : Int, upper : Int }
 
 
 {-| Build an `Int64` from two `Int` values.
 -}
 fromInt32s : Int32s -> Int64
 fromInt32s =
-    Internal.Int64.fromInt32s
+    rewrap >> Int64
 
 
 {-| Get the two `Int` values for lower and upper bits from an `Int64`.
 -}
 toInt32s : Int64 -> Int32s
-toInt32s =
-    Internal.Int64.toInt32s
+toInt32s (Int64 int32s) =
+    int32s
+
+
+rewrap : Int32s -> Int32s
+rewrap { lower, upper } =
+    { lower = Bitwise.or 0 lower, upper = Bitwise.or 0 upper }

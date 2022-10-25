@@ -66,9 +66,9 @@ import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
-import Internal.Int32 as Int32
-import Internal.Int64 as Int64 exposing (Int64)
+import Internal.IntOperations exposing (IntOperations, int32Operations, int64Operations)
 import Internal.Protobuf exposing (WireType(..))
+import Protobuf.Types.Int64 as Int64 exposing (Int64)
 
 
 
@@ -220,7 +220,7 @@ Note that for `proto2` the `Unrecognized Int` field can be left out.
 -}
 int32 : Int -> Encoder
 int32 =
-    intEncoder Int32.config
+    intEncoder int32Operations
 
 
 {-| Encode integers from `0` to `4294967295` into a message.
@@ -232,7 +232,7 @@ Uses variable-length encoding.
 -}
 uint32 : Int -> Encoder
 uint32 =
-    uintEncoder Int32.config
+    uintEncoder int32Operations
 
 
 {-| Encode integers from `-2147483648` to `2147483647` into a message. Uses
@@ -246,7 +246,7 @@ efficiently than [`int32`](#int32).
 -}
 sint32 : Int -> Encoder
 sint32 =
-    sintEncoder Int32.config
+    sintEncoder int32Operations
 
 
 {-| Encode integers from `0` to `4294967295` into a message. Always four bytes.
@@ -281,7 +281,7 @@ field is likely to have negative values, use [`sint64`](#sint64) instead.
 -}
 int64 : Int64 -> Encoder
 int64 =
-    intEncoder Int64.config
+    intEncoder int64Operations
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message. Uses
@@ -290,7 +290,7 @@ efficiently than [`int64`](#int64).
 -}
 sint64 : Int64 -> Encoder
 sint64 =
-    sintEncoder Int64.config
+    sintEncoder int64Operations
 
 
 {-| Encode integers from `0` to `18446744073709551615` into a message.
@@ -298,7 +298,7 @@ Uses variable-length encoding.
 -}
 uint64 : Int64 -> Encoder
 uint64 =
-    uintEncoder Int64.config
+    uintEncoder int64Operations
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message.
@@ -306,14 +306,15 @@ Always eight bytes.
 -}
 sfixed64 : Int64 -> Encoder
 sfixed64 =
-    fixedEncoder <|
-        Int64.toInt32s
-            >> (\{ lower, upper } ->
-                    Encode.sequence
-                        [ Encode.unsignedInt32 LE lower
-                        , Encode.unsignedInt32 LE upper
-                        ]
-               )
+    Int64.toInt32s
+        >> (\{ lower, upper } ->
+                Encode.sequence
+                    [ Encode.unsignedInt32 LE lower
+                    , Encode.unsignedInt32 LE upper
+                    ]
+           )
+        >> Tuple.pair 8
+        >> Encoder Bit64
 
 
 {-| Encode integers from `0` to `18446744073709551615` into a message.
@@ -322,11 +323,6 @@ Always eight bytes.
 fixed64 : Int64 -> Encoder
 fixed64 =
     sfixed64
-
-
-fixedEncoder : (intType -> Encode.Encoder) -> intType -> Encoder
-fixedEncoder encoder =
-    encoder >> Tuple.pair 8 >> Encoder Bit64
 
 
 
@@ -622,36 +618,43 @@ tag fieldNumber wireType =
 -- VARINT
 
 
-intEncoder : EncodeVarInt intType config -> intType -> Encoder
+intEncoder : IntOperations int -> int -> Encoder
 intEncoder config =
     Encoder VarInt << varInt config
 
 
-sintEncoder : EncodeVarInt intType { config | zigZag : intType -> intType } -> intType -> Encoder
+sintEncoder : IntOperations int -> int -> Encoder
 sintEncoder config =
     intEncoder config << config.zigZag
 
 
-uintEncoder : EncodeVarInt intType { config | fromUnsigned : intType -> intType } -> intType -> Encoder
+uintEncoder : IntOperations int -> int -> Encoder
 uintEncoder config =
     intEncoder config << config.fromUnsigned
 
 
 varInt32 : Int -> ( Int, Encode.Encoder )
 varInt32 =
-    varInt Int32.config
+    varInt int32Operations
 
 
-varInt : EncodeVarInt intType config -> intType -> ( Int, Encode.Encoder )
+varInt : IntOperations int -> int -> ( Int, Encode.Encoder )
 varInt config value =
     let
         encoders =
-            config.to7BitList value |> List.map Encode.unsignedInt8
+            toVarIntEncoders config value
     in
     ( List.length encoders, Encode.sequence encoders )
 
 
-type alias EncodeVarInt intType config =
-    { config
-        | to7BitList : intType -> List Int
-    }
+toVarIntEncoders : IntOperations int -> int -> List Encode.Encoder
+toVarIntEncoders config value =
+    let
+        ( base128, higherBits ) =
+            config.split7Bit value
+    in
+    if higherBits == config.zero then
+        [ Encode.unsignedInt8 base128 ]
+
+    else
+        Encode.unsignedInt8 (Bitwise.or 0x80 base128) :: toVarIntEncoders config higherBits

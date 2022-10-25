@@ -66,9 +66,9 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode
 import Dict exposing (Dict)
 import Http
-import Internal.Int32 as Int32
-import Internal.Int64 as Int64 exposing (Int64)
+import Internal.IntOperations exposing (int32Operations, int64Operations)
 import Internal.Protobuf exposing (WireType(..))
+import Protobuf.Types.Int64 as Int64 exposing (Int64)
 import Set
 
 
@@ -469,21 +469,21 @@ oneOf decoders set =
 -}
 int32 : Decoder Int
 int32 =
-    intDecoder Int32.config
+    intDecoder int32Operations
 
 
 {-| Decode a variable number of bytes into an integer from 0 to 4294967295.
 -}
 uint32 : Decoder Int
 uint32 =
-    uintDecoder Int32.config
+    uintDecoder int32Operations
 
 
 {-| Decode a variable number of bytes into an integer from -2147483648 to 2147483647.
 -}
 sint32 : Decoder Int
 sint32 =
-    sintDecoder Int32.config
+    sintDecoder int32Operations
 
 
 {-| Decode four bytes into an integer from 0 to 4294967295.
@@ -504,21 +504,21 @@ sfixed32 =
 -}
 int64 : Decoder Int64
 int64 =
-    intDecoder Int64.config
+    intDecoder int64Operations
 
 
 {-| Decode a variable number of bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
 -}
 sint64 : Decoder Int64
 sint64 =
-    sintDecoder Int64.config
+    sintDecoder int64Operations
 
 
 {-| Decode a variable number of bytes into an integer from `0` to `18446744073709551615`.
 -}
 uint64 : Decoder Int64
 uint64 =
-    uintDecoder Int64.config
+    uintDecoder int64Operations
 
 
 {-| Decode a eight bytes into an integer from `0` to `18446744073709551615`.
@@ -585,7 +585,7 @@ string =
 -}
 bool : Decoder Bool
 bool =
-    packWith ((/=) 0) Int32.config
+    packWith ((/=) 0) int32Operations
         |> packedDecoder VarInt
 
 
@@ -745,7 +745,7 @@ stepMessage width state =
 
 tagDecoder : Decode.Decoder ( Int, ( Int, WireType ) )
 tagDecoder =
-    pack Int32.config
+    pack int32Operations
         |> Decode.andThen
             (\( usedBytes, value ) ->
                 let
@@ -761,7 +761,7 @@ tagDecoder =
                             Decode.succeed ( 0, Bit64 )
 
                         2 ->
-                            Decode.map (Tuple.mapSecond LengthDelimited) (pack Int32.config)
+                            Decode.map (Tuple.mapSecond LengthDelimited) (pack int32Operations)
 
                         3 ->
                             Decode.succeed ( 0, StartGroup )
@@ -779,7 +779,8 @@ tagDecoder =
 
 type alias DecodeVarInt intType config =
     { config
-        | from7BitList : List Int -> intType
+        | add7Bit : Int -> intType -> intType
+        , zero : intType
     }
 
 
@@ -790,7 +791,8 @@ pack =
 
 packWith : (intType -> otherType) -> DecodeVarInt intType config -> Decode.Decoder ( Int, otherType )
 packWith transform config =
-    Decode.map (\sevenBitInts -> ( List.length sevenBitInts, config.from7BitList sevenBitInts |> transform )) varIntDecoder
+    varIntDecoder config
+        |> Decode.map (Tuple.mapSecond transform)
 
 
 intDecoder : DecodeVarInt intType config -> Decoder intType
@@ -808,19 +810,21 @@ uintDecoder config =
     packWith config.toUnsigned config |> packedDecoder VarInt
 
 
-varIntDecoder : Decode.Decoder (List Int)
-varIntDecoder =
-    Decode.loop [] <|
-        \state ->
-            Decode.unsignedInt8
-                |> Decode.map
-                    (\octet ->
-                        if Bitwise.and 0x80 octet == 0x80 then
-                            Decode.Loop <| Bitwise.and 0x7F octet :: state
+varIntDecoder : DecodeVarInt int config -> Decode.Decoder ( Int, int )
+varIntDecoder config =
+    Decode.unsignedInt8
+        |> Decode.andThen
+            (\octet ->
+                if Bitwise.and 0x80 octet == 0x80 then
+                    Decode.map
+                        (\( usedBytes, value ) ->
+                            ( usedBytes + 1, config.add7Bit (Bitwise.and 0x7F octet) value )
+                        )
+                        (varIntDecoder config)
 
-                        else
-                            Decode.Done <| octet :: state
-                    )
+                else
+                    Decode.succeed ( 1, config.add7Bit octet config.zero )
+            )
 
 
 lengthDelimitedDecoder : (Int -> Decode.Decoder a) -> Decoder a
@@ -877,7 +881,7 @@ unknownFieldDecoder : WireType -> Decode.Decoder Int
 unknownFieldDecoder wireType =
     case wireType of
         VarInt ->
-            Decode.map List.length varIntDecoder
+            Decode.map Tuple.first (varIntDecoder int32Operations)
 
         Bit64 ->
             Decode.map (always 8) (Decode.bytes 8)
