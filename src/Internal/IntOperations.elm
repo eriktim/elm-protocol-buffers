@@ -107,7 +107,7 @@ to7BitList : Int64 -> ( Int, Int64 )
 to7BitList int64 =
     let
         { lower } =
-            Int64.toInt32s int64
+            Int64.toInts int64
 
         base128 =
             Bitwise.and 0x7F lower
@@ -126,50 +126,49 @@ from7BitList sevenBitInt acc =
 shiftRightZfBy : Int -> Int64 -> Int64
 shiftRightZfBy n int64 =
     let
-        int32s =
-            Int64.toInt32s int64
+        { lower, higher } =
+            Int64.toInts int64
     in
     if n > 32 then
-        Int64.fromInt32s { lower = Bitwise.shiftRightZfBy n int32s.upper, upper = 0 }
+        Int64.fromInts 0 (Bitwise.shiftRightZfBy n higher)
 
     else
         let
             carry =
-                Bitwise.shiftLeftBy (32 - n) int32s.upper
+                Bitwise.shiftLeftBy (32 - n) higher
 
             newLower =
-                int32s.lower
+                lower
                     |> Bitwise.shiftRightZfBy n
                     |> Bitwise.or carry
                     |> Bitwise.shiftRightZfBy 0
         in
-        Int64.fromInt32s { lower = newLower, upper = Bitwise.shiftRightZfBy n int32s.upper }
+        Int64.fromInts (Bitwise.shiftRightZfBy n higher) newLower
 
 
 shiftRightBy63 : Int64 -> Int64
 shiftRightBy63 int64 =
     let
-        { upper } =
-            Int64.toInt32s int64
+        { higher } =
+            Int64.toInts int64
     in
-    Int64.fromInt32s
-        { lower = Bitwise.shiftRightBy 31 upper
-        , upper =
-            if upper >= 0 then
-                0
+    Int64.fromInts
+        (if higher >= 0 then
+            0
 
-            else
-                -1
-        }
+         else
+            -1
+        )
+        (Bitwise.shiftRightBy 31 higher)
 
 
 andInt : Int -> Int64 -> Int64
 andInt n int64 =
     let
-        int32s =
-            Int64.toInt32s int64
+        { lower } =
+            Int64.toInts int64
     in
-    Int64.fromInt32s { int32s | lower = Bitwise.and n int32s.lower, upper = 0 }
+    Int64.fromInts 0 (Bitwise.and n lower)
 
 
 {-| Adds int to lower bits. Does NOT handle overflow!
@@ -177,62 +176,61 @@ andInt n int64 =
 addUnsafe : Int -> Int64 -> Int64
 addUnsafe n int64 =
     let
-        int32s =
-            Int64.toInt32s int64
+        { lower, higher } =
+            Int64.toInts int64
     in
-    Int64.fromInt32s { int32s | lower = n + int32s.lower }
+    Int64.fromInts higher (n + lower)
 
 
 negate : Int64 -> Int64
 negate int64 =
     let
-        { lower, upper } =
-            Int64.toInt32s int64
+        { lower, higher } =
+            Int64.toInts int64
     in
     if int64 == zero then
         zero
 
     else
-        Int64.fromInt32s { lower = Bitwise.complement lower + 1, upper = Bitwise.complement upper }
+        Int64.fromInts (Bitwise.complement higher) (Bitwise.complement lower + 1)
 
 
 shiftLeftBy : Int -> Int64 -> Int64
 shiftLeftBy n int64 =
     let
-        { lower, upper } =
-            Int64.toInt32s int64
+        { lower, higher } =
+            Int64.toInts int64
     in
     if n > 32 then
-        Int64.fromInt32s { lower = 0, upper = Bitwise.shiftLeftBy n lower }
+        Int64.fromInts (Bitwise.shiftLeftBy n lower) 0
 
     else
         let
             carry =
                 Bitwise.shiftRightZfBy (32 - n) lower
 
-            newUpper =
-                upper
+            newHigher =
+                higher
                     |> Bitwise.shiftLeftBy n
                     |> Bitwise.or carry
         in
-        Int64.fromInt32s { lower = Bitwise.shiftLeftBy n lower, upper = newUpper }
+        Int64.fromInts newHigher (Bitwise.shiftLeftBy n lower)
 
 
 xor : Int64 -> Int64 -> Int64
 xor a b =
     let
         i =
-            Int64.toInt32s a
+            Int64.toInts a
 
         j =
-            Int64.toInt32s b
+            Int64.toInts b
     in
-    Int64.fromInt32s
-        { lower = Bitwise.xor i.lower j.lower
-        , upper = Bitwise.xor i.upper j.upper
-        }
+    Int64.fromInts
+        (Bitwise.xor i.higher j.higher)
+        (Bitwise.xor i.lower j.lower)
 
 
 zero : Int64
 zero =
-    Int64.fromInt32s { lower = 0, upper = 0 }
+    Int64.fromInts 0 0

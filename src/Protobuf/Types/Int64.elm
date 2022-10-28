@@ -1,6 +1,6 @@
 module Protobuf.Types.Int64 exposing
-    ( Int64, Int32s
-    , fromInt32s, toInt32s
+    ( Int64
+    , Ints, fromInts, toInts
     )
 
 {-| A simple 64-bit integer made up from two 32-bit integers.
@@ -32,29 +32,29 @@ import Bitwise
 {-| The `Int64` data type. Guarantees the invariant that the internal integers are kept between `-2 ^ 31` and `2 ^ 31 - 1`.
 -}
 type Int64
-    = Int64 Int32s
+    = Int64 Ints
 
 
 {-| A record containing two `Int` values, one for the lower 32 bits and one for the upper 32 bits.
 -}
-type alias Int32s =
-    { lower : Int, upper : Int }
+type alias Ints =
+    { lower : Int, higher : Int }
 
 
 {-| Build an `Int64` from two `Int` values.
 -}
-fromInt32s : Int32s -> Int64
-fromInt32s =
-    rewrap >> Int64
+fromInts : Int -> Int -> Int64
+fromInts higher lower =
+    rewrap { higher = higher, lower = lower } |> Int64
 
 
 {-| Get the two `Int` values for lower and upper bits from an `Int64`.
 -}
-toInt32s : Int64 -> Int32s
-toInt32s (Int64 int32s) =
+toInts : Int64 -> Ints
+toInts (Int64 int32s) =
     int32s
 
 
-rewrap : Int32s -> Int32s
-rewrap { lower, upper } =
-    { lower = Bitwise.or 0 lower, upper = Bitwise.or 0 upper }
+rewrap : Ints -> Ints
+rewrap { lower, higher } =
+    { lower = Bitwise.or 0 lower, higher = Bitwise.or 0 higher }

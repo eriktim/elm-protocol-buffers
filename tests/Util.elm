@@ -27,7 +27,7 @@ int32 =
 
 int64 : Fuzzer Int64
 int64 =
-    Fuzz.map2 (\lower upper -> Int64.fromInt32s { lower = lower, upper = upper }) int32 int32
+    Fuzz.map2 Int64.fromInts int32 int32
 
 
 uint32 : Fuzzer Int

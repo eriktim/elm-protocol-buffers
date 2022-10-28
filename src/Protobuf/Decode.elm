@@ -526,7 +526,7 @@ uint64 =
 fixed64 : Decoder Int64
 fixed64 =
     fixed64Decoder <|
-        Decode.map2 (\lower upper -> Int64.fromInt32s { lower = lower, upper = upper })
+        Decode.map2 (\lower higher -> Int64.fromInts higher lower)
             (Decode.unsignedInt32 LE)
             (Decode.unsignedInt32 LE)
 

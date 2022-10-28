@@ -306,11 +306,11 @@ Always eight bytes.
 -}
 sfixed64 : Int64 -> Encoder
 sfixed64 =
-    Int64.toInt32s
-        >> (\{ lower, upper } ->
+    Int64.toInts
+        >> (\{ lower, higher } ->
                 Encode.sequence
                     [ Encode.unsignedInt32 LE lower
-                    , Encode.unsignedInt32 LE upper
+                    , Encode.unsignedInt32 LE higher
                     ]
            )
         >> Tuple.pair 8

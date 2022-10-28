@@ -40,31 +40,30 @@ suite =
             , Encode.message
                 [ ( 1
                   , Encode.int64 <|
-                        Int64.fromInt32s { lower = 2147483645, upper = 1 }
+                        Int64.fromInts 1 2147483645
                   )
                 ]
                 |> expectBytes "08FDFFFFFF17"
                 |> test "an int64"
             , Encode.message
                 [ ( 1
-                  , Encode.int64 <| Int64.fromInt32s { upper = 4294967295, lower = 4294954951 }
+                  , Encode.int64 <| Int64.fromInts 4294967295 4294954951
                   )
                 ]
                 |> expectBytes "08C79FFFFFFFFFFFFFFF01"
                 |> test "a negative int64"
             , Encode.message
-                [ ( 1, Encode.uint64 <| Int64.fromInt32s { upper = 0, lower = 2345678 } ) ]
+                [ ( 1, Encode.uint64 <| Int64.fromInts 0 2345678 ) ]
                 |> expectBytes "08CE958F01"
                 |> test "an uint64"
             , Encode.message
-                [ ( 1, Encode.uint64 <| Int64.fromInt32s { upper = 0xFFFFFFFF, lower = 0xFFFFFFFF } ) ]
+                [ ( 1, Encode.uint64 <| Int64.fromInts 0xFFFFFFFF 0xFFFFFFFF ) ]
                 |> expectBytes "08FFFFFFFFFFFFFFFFFF01"
                 |> test "a large uint64"
             , Encode.message
                 [ ( 1
                   , Encode.sint64 <|
-                        Int64.fromInt32s
-                            { lower = 2147483645, upper = 1 }
+                        Int64.fromInts 1 2147483645
                   )
                 ]
                 |> expectBytes "08FAFFFFFF2F"
@@ -72,7 +71,7 @@ suite =
             , Encode.message
                 [ ( 1
                   , Encode.sint64 <|
-                        Int64.fromInt32s { upper = -1, lower = -12345 }
+                        Int64.fromInts -1 -12345
                   )
                 ]
                 |> expectBytes "08F1C001"
@@ -80,7 +79,7 @@ suite =
             , Encode.message
                 [ ( 1
                   , Encode.sfixed64 <|
-                        Int64.fromInt32s { lower = 2147483645, upper = 1 }
+                        Int64.fromInts 1 2147483645
                   )
                 ]
                 |> expectBytes "09FDFFFF7F01000000"
@@ -88,7 +87,7 @@ suite =
             , Encode.message
                 [ ( 1
                   , Encode.sfixed64 <|
-                        Int64.fromInt32s { lower = -2147483645, upper = -1 }
+                        Int64.fromInts -1 -2147483645
                   )
                 ]
                 |> expectBytes "0903000080FFFFFFFF"
@@ -96,7 +95,7 @@ suite =
             , Encode.message
                 [ ( 1
                   , Encode.fixed64 <|
-                        Int64.fromInt32s { lower = 2147483645, upper = 1 }
+                        Int64.fromInts 1 2147483645
                   )
                 ]
                 |> expectBytes "09FDFFFF7F01000000"
@@ -104,7 +103,7 @@ suite =
             , Encode.message
                 [ ( 1
                   , Encode.fixed64 <|
-                        Int64.fromInt32s { lower = 0x11223344, upper = 0xAABBCCDD }
+                        Int64.fromInts 0xAABBCCDD 0x11223344
                   )
                 ]
                 |> expectBytes "0944332211DDCCBBAA"
