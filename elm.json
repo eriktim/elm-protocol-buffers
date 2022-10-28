@@ -1,7 +1,7 @@
 {
     "type": "package",
     "name": "eriktim/elm-protocol-buffers",
-    "summary": "An Elm implementation of the Protocol Buffers specification",
+    "summary": "An Elm implementation of the Protocol Buffers (protobuf) specification",
     "license": "BSD-3-Clause",
     "version": "1.2.0",
     "exposed-modules": [

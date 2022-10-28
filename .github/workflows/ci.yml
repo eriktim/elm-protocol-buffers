@@ -18,7 +18,7 @@ jobs:
           node-version: 16.x
 
       - name: install elm
-        run: npm install elm elm-test elm-format
+        run: npm install elm@0.19.1-5 elm-test@0.19.1-revision9 elm-format@0.8.5
 
       - name: elm-format
         run: npx elm-format --validate src/ tests/
