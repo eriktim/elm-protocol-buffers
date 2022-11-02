@@ -6,23 +6,23 @@ import Internal.IntOperations exposing (IntOperations)
 
 operations : IntOperations Int
 operations =
-    { zigZag = zigZag
-    , zagZig = zagZig
+    { toZigZag = toZigZag
+    , fromZigZag = fromZigZag
     , fromUnsigned = fromUnsigned
     , toUnsigned = toUnsigned
-    , pushBase128 = pushByte
-    , popBase128 = popByte
+    , pushBase128 = pushBase128
+    , popBase128 = popBase128
     , fromBase128 = identity
     }
 
 
-zigZag : Int -> Int
-zigZag value =
+toZigZag : Int -> Int
+toZigZag value =
     Bitwise.xor (Bitwise.shiftRightBy 31 value) (Bitwise.shiftLeftBy 1 value)
 
 
-zagZig : Int -> Int
-zagZig value =
+fromZigZag : Int -> Int
+fromZigZag value =
     Bitwise.xor (Bitwise.shiftRightZfBy 1 value) (-1 * Bitwise.and 1 value)
 
 
@@ -44,8 +44,8 @@ toUnsigned value =
         value
 
 
-popByte : Int -> ( Int, Int )
-popByte value =
+popBase128 : Int -> ( Int, Int )
+popBase128 value =
     let
         base128 =
             Bitwise.and 0x7F value
@@ -56,6 +56,6 @@ popByte value =
     ( base128, higherBits )
 
 
-pushByte : Int -> Int -> Int
-pushByte sevenBitInt acc =
+pushBase128 : Int -> Int -> Int
+pushBase128 sevenBitInt acc =
     sevenBitInt + Bitwise.shiftLeftBy 7 acc

@@ -2,8 +2,8 @@ module Internal.IntOperations exposing (IntOperations)
 
 
 type alias IntOperations int =
-    { zigZag : int -> int
-    , zagZig : int -> int
+    { toZigZag : int -> int
+    , fromZigZag : int -> int
     , toUnsigned : int -> int
     , fromUnsigned : int -> int
     , popBase128 : int -> ( Int, int )

@@ -587,7 +587,8 @@ string =
 -}
 bool : Decoder Bool
 bool =
-    packWith ((/=) 0) Internal.Int32.operations
+    varIntDecoder Internal.Int32.operations
+        |> Decode.map (Tuple.mapSecond ((/=) 0))
         |> packedDecoder VarInt
 
 
@@ -747,7 +748,7 @@ stepMessage width state =
 
 tagDecoder : Decode.Decoder ( Int, ( Int, WireType ) )
 tagDecoder =
-    pack Internal.Int32.operations
+    varIntDecoder Internal.Int32.operations
         |> Decode.andThen
             (\( usedBytes, value ) ->
                 let
@@ -763,7 +764,7 @@ tagDecoder =
                             Decode.succeed ( 0, Bit64 )
 
                         2 ->
-                            Decode.map (Tuple.mapSecond LengthDelimited) (pack Internal.Int32.operations)
+                            Decode.map (Tuple.mapSecond LengthDelimited) (varIntDecoder Internal.Int32.operations)
 
                         3 ->
                             Decode.succeed ( 0, StartGroup )
@@ -779,30 +780,23 @@ tagDecoder =
             )
 
 
-pack : IntOperations int -> Decode.Decoder ( Int, int )
-pack =
-    packWith identity
-
-
-packWith : (int -> a) -> IntOperations int -> Decode.Decoder ( Int, a )
-packWith transform config =
-    varIntDecoder config
-        |> Decode.map (Tuple.mapSecond transform)
-
-
 intDecoder : IntOperations int -> Decoder int
-intDecoder config =
-    pack config |> packedDecoder VarInt
+intDecoder =
+    varIntDecoder >> packedDecoder VarInt
 
 
 sintDecoder : IntOperations int -> Decoder int
 sintDecoder config =
-    packWith config.zagZig config |> packedDecoder VarInt
+    varIntDecoder config
+        |> Decode.map (Tuple.mapSecond config.fromZigZag)
+        |> packedDecoder VarInt
 
 
 uintDecoder : IntOperations int -> Decoder int
 uintDecoder config =
-    packWith config.toUnsigned config |> packedDecoder VarInt
+    varIntDecoder config
+        |> Decode.map (Tuple.mapSecond config.toUnsigned)
+        |> packedDecoder VarInt
 
 
 varIntDecoder : IntOperations int -> Decode.Decoder ( Int, int )

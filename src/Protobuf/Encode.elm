@@ -627,7 +627,7 @@ intEncoder config =
 
 sintEncoder : IntOperations int -> int -> Encoder
 sintEncoder config =
-    intEncoder config << config.zigZag
+    intEncoder config << config.toZigZag
 
 
 uintEncoder : IntOperations int -> int -> Encoder
