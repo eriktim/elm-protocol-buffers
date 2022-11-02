@@ -66,7 +66,9 @@ import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
-import Internal.IntOperations exposing (IntOperations, int32Operations, int64Operations)
+import Internal.Int32
+import Internal.Int64
+import Internal.IntOperations exposing (IntOperations)
 import Internal.Protobuf exposing (WireType(..))
 import Protobuf.Types.Int64 as Int64 exposing (Int64)
 
@@ -220,7 +222,7 @@ Note that for `proto2` the `Unrecognized Int` field can be left out.
 -}
 int32 : Int -> Encoder
 int32 =
-    intEncoder int32Operations
+    intEncoder Internal.Int32.operations
 
 
 {-| Encode integers from `0` to `4294967295` into a message.
@@ -232,7 +234,7 @@ Uses variable-length encoding.
 -}
 uint32 : Int -> Encoder
 uint32 =
-    uintEncoder int32Operations
+    uintEncoder Internal.Int32.operations
 
 
 {-| Encode integers from `-2147483648` to `2147483647` into a message. Uses
@@ -246,7 +248,7 @@ efficiently than [`int32`](#int32).
 -}
 sint32 : Int -> Encoder
 sint32 =
-    sintEncoder int32Operations
+    sintEncoder Internal.Int32.operations
 
 
 {-| Encode integers from `0` to `4294967295` into a message. Always four bytes.
@@ -281,7 +283,7 @@ field is likely to have negative values, use [`sint64`](#sint64) instead.
 -}
 int64 : Int64 -> Encoder
 int64 =
-    intEncoder int64Operations
+    intEncoder Internal.Int64.operations
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message. Uses
@@ -290,7 +292,7 @@ efficiently than [`int64`](#int64).
 -}
 sint64 : Int64 -> Encoder
 sint64 =
-    sintEncoder int64Operations
+    sintEncoder Internal.Int64.operations
 
 
 {-| Encode integers from `0` to `18446744073709551615` into a message.
@@ -298,7 +300,7 @@ Uses variable-length encoding.
 -}
 uint64 : Int64 -> Encoder
 uint64 =
-    uintEncoder int64Operations
+    uintEncoder Internal.Int64.operations
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message.
@@ -307,7 +309,7 @@ Always eight bytes.
 sfixed64 : Int64 -> Encoder
 sfixed64 =
     Int64.toInts
-        >> (\{ lower, higher } ->
+        >> (\( higher, lower ) ->
                 Encode.sequence
                     [ Encode.unsignedInt32 LE lower
                     , Encode.unsignedInt32 LE higher
@@ -635,7 +637,7 @@ uintEncoder config =
 
 varInt32 : Int -> ( Int, Encode.Encoder )
 varInt32 =
-    varInt int32Operations
+    varInt Internal.Int32.operations
 
 
 varInt : IntOperations int -> int -> ( Int, Encode.Encoder )
@@ -651,9 +653,9 @@ toVarIntEncoders : IntOperations int -> int -> List Encode.Encoder
 toVarIntEncoders config value =
     let
         ( base128, higherBits ) =
-            config.split7Bit value
+            config.popBase128 value
     in
-    if higherBits == config.zero then
+    if higherBits == config.fromBase128 0 then
         [ Encode.unsignedInt8 base128 ]
 
     else

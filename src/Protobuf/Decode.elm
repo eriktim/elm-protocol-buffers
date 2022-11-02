@@ -66,7 +66,9 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode
 import Dict exposing (Dict)
 import Http
-import Internal.IntOperations exposing (IntOperations, int32Operations, int64Operations)
+import Internal.Int32
+import Internal.Int64
+import Internal.IntOperations exposing (IntOperations)
 import Internal.Protobuf exposing (WireType(..))
 import Protobuf.Types.Int64 as Int64 exposing (Int64)
 import Set
@@ -469,21 +471,21 @@ oneOf decoders set =
 -}
 int32 : Decoder Int
 int32 =
-    intDecoder int32Operations
+    intDecoder Internal.Int32.operations
 
 
 {-| Decode a variable number of bytes into an integer from 0 to 4294967295.
 -}
 uint32 : Decoder Int
 uint32 =
-    uintDecoder int32Operations
+    uintDecoder Internal.Int32.operations
 
 
 {-| Decode a variable number of bytes into an integer from -2147483648 to 2147483647.
 -}
 sint32 : Decoder Int
 sint32 =
-    sintDecoder int32Operations
+    sintDecoder Internal.Int32.operations
 
 
 {-| Decode four bytes into an integer from 0 to 4294967295.
@@ -504,21 +506,21 @@ sfixed32 =
 -}
 int64 : Decoder Int64
 int64 =
-    intDecoder int64Operations
+    intDecoder Internal.Int64.operations
 
 
 {-| Decode a variable number of bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
 -}
 sint64 : Decoder Int64
 sint64 =
-    sintDecoder int64Operations
+    sintDecoder Internal.Int64.operations
 
 
 {-| Decode a variable number of bytes into an integer from `0` to `18446744073709551615`.
 -}
 uint64 : Decoder Int64
 uint64 =
-    uintDecoder int64Operations
+    uintDecoder Internal.Int64.operations
 
 
 {-| Decode a eight bytes into an integer from `0` to `18446744073709551615`.
@@ -585,7 +587,7 @@ string =
 -}
 bool : Decoder Bool
 bool =
-    packWith ((/=) 0) int32Operations
+    packWith ((/=) 0) Internal.Int32.operations
         |> packedDecoder VarInt
 
 
@@ -745,7 +747,7 @@ stepMessage width state =
 
 tagDecoder : Decode.Decoder ( Int, ( Int, WireType ) )
 tagDecoder =
-    pack int32Operations
+    pack Internal.Int32.operations
         |> Decode.andThen
             (\( usedBytes, value ) ->
                 let
@@ -761,7 +763,7 @@ tagDecoder =
                             Decode.succeed ( 0, Bit64 )
 
                         2 ->
-                            Decode.map (Tuple.mapSecond LengthDelimited) (pack int32Operations)
+                            Decode.map (Tuple.mapSecond LengthDelimited) (pack Internal.Int32.operations)
 
                         3 ->
                             Decode.succeed ( 0, StartGroup )
@@ -811,12 +813,12 @@ varIntDecoder config =
                 if Bitwise.and 0x80 octet == 0x80 then
                     Decode.map
                         (\( usedBytes, value ) ->
-                            ( usedBytes + 1, config.add7Bit (Bitwise.and 0x7F octet) value )
+                            ( usedBytes + 1, config.pushBase128 (Bitwise.and 0x7F octet) value )
                         )
                         (varIntDecoder config)
 
                 else
-                    Decode.succeed ( 1, config.add7Bit octet config.zero )
+                    Decode.succeed ( 1, config.fromBase128 octet )
             )
 
 
@@ -874,7 +876,7 @@ unknownFieldDecoder : WireType -> Decode.Decoder Int
 unknownFieldDecoder wireType =
     case wireType of
         VarInt ->
-            Decode.map Tuple.first (varIntDecoder int32Operations)
+            Decode.map Tuple.first (varIntDecoder Internal.Int32.operations)
 
         Bit64 ->
             Decode.map (always 8) (Decode.bytes 8)

@@ -1,6 +1,6 @@
 module Protobuf.Types.Int64 exposing
     ( Int64
-    , Ints, fromInts, toInts
+    , fromInts, toInts
     )
 
 {-| A simple 64-bit integer made up from two 32-bit integers.
@@ -12,49 +12,38 @@ This module is intentionally kept sparse to achieve the following goals:
 
 If you find yourself needing extra logic/arithmetic revolving around 64-bit integers,
 please use one of the available packages providing what you need and convert with
-`fromInt32s` and `toInt32s` between the two data types.
+`fromInts` and `toInts` between the two data types.
 
 
 # Data Types
 
-@docs Int64, Int32s
+@docs Int64
 
 
 # Conversions
 
-@docs fromInt32s, toInt32s
+@docs fromInts, toInts
 
 -}
 
-import Bitwise
+import Internal.Int64
 
 
 {-| The `Int64` data type. Guarantees the invariant that the internal integers are kept between `-2 ^ 31` and `2 ^ 31 - 1`.
 -}
-type Int64
-    = Int64 Ints
-
-
-{-| A record containing two `Int` values, one for the lower 32 bits and one for the upper 32 bits.
--}
-type alias Ints =
-    { lower : Int, higher : Int }
+type alias Int64 =
+    Internal.Int64.Int64
 
 
 {-| Build an `Int64` from two `Int` values.
 -}
 fromInts : Int -> Int -> Int64
-fromInts higher lower =
-    rewrap { higher = higher, lower = lower } |> Int64
+fromInts =
+    Internal.Int64.fromInts
 
 
-{-| Get the two `Int` values for lower and upper bits from an `Int64`.
+{-| Get the two `Int` values for higher and lower bits from an `Int64`.
 -}
-toInts : Int64 -> Ints
-toInts (Int64 int32s) =
-    int32s
-
-
-rewrap : Ints -> Ints
-rewrap { lower, higher } =
-    { lower = Bitwise.or 0 lower, higher = Bitwise.or 0 higher }
+toInts : Int64 -> ( Int, Int )
+toInts =
+    Internal.Int64.toInts
