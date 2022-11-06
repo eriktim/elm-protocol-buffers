@@ -795,7 +795,7 @@ sintDecoder config =
 uintDecoder : IntOperations int -> Decoder int
 uintDecoder config =
     varIntDecoder config
-        |> Decode.map (Tuple.mapSecond config.toUnsigned)
+        |> Decode.map (Tuple.mapSecond config.fromSigned)
         |> packedDecoder VarInt
 
 

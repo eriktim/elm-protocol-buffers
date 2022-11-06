@@ -632,7 +632,7 @@ sintEncoder config =
 
 uintEncoder : IntOperations int -> int -> Encoder
 uintEncoder config =
-    intEncoder config << config.fromUnsigned
+    intEncoder config << config.toSigned
 
 
 varInt32 : Int -> ( Int, Encode.Encoder )

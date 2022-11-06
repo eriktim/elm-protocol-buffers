@@ -26,8 +26,8 @@ operations : IntOperations Int64
 operations =
     { toZigZag = toZigZag
     , fromZigZag = fromZigZag
-    , fromUnsigned = identity
-    , toUnsigned = identity
+    , toSigned = identity
+    , fromSigned = identity
     , popBase128 = popBase128
     , pushBase128 = pushBase128
     , fromBase128 = fromBase128
@@ -36,8 +36,7 @@ operations =
 
 toZigZag : Int64 -> Int64
 toZigZag value =
-    xor (shiftRightBy63 value)
-        (shiftLeftBy 1 value)
+    xor (shiftRightBy63 value) (shiftLeftBy 1 value)
 
 
 fromZigZag : Int64 -> Int64
@@ -58,8 +57,17 @@ popBase128 ((Int64 { lower }) as int64) =
 
 
 pushBase128 : Int -> Int64 -> Int64
-pushBase128 sevenBitInt acc =
-    addUnsafe sevenBitInt (shiftLeftBy 7 acc)
+pushBase128 base128 int =
+    addUnsafe base128 (shiftLeftBy 7 int)
+
+
+fromBase128 : Int -> Int64
+fromBase128 =
+    fromInts 0
+
+
+
+-- HELPERS
 
 
 shiftRightZfBy : Int -> Int64 -> Int64
@@ -83,14 +91,11 @@ shiftRightZfBy n (Int64 { lower, higher }) =
 
 shiftRightBy63 : Int64 -> Int64
 shiftRightBy63 (Int64 { higher }) =
-    fromInts
-        (if higher >= 0 then
-            0
-
-         else
-            -1
-        )
-        (Bitwise.shiftRightBy 31 higher)
+    let
+        zeroOrMinusOne =
+            Bitwise.shiftRightBy 31 higher
+    in
+    fromInts zeroOrMinusOne zeroOrMinusOne
 
 
 andInt : Int -> Int64 -> Int64
@@ -137,8 +142,3 @@ xor (Int64 a) (Int64 b) =
     fromInts
         (Bitwise.xor a.higher b.higher)
         (Bitwise.xor a.lower b.lower)
-
-
-fromBase128 : Int -> Int64
-fromBase128 =
-    fromInts 0

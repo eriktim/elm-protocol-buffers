@@ -8,10 +8,10 @@ operations : IntOperations Int
 operations =
     { toZigZag = toZigZag
     , fromZigZag = fromZigZag
-    , fromUnsigned = fromUnsigned
-    , toUnsigned = toUnsigned
-    , pushBase128 = pushBase128
+    , toSigned = toSigned
+    , fromSigned = fromSigned
     , popBase128 = popBase128
+    , pushBase128 = pushBase128
     , fromBase128 = identity
     }
 
@@ -26,8 +26,8 @@ fromZigZag value =
     Bitwise.xor (Bitwise.shiftRightZfBy 1 value) (-1 * Bitwise.and 1 value)
 
 
-fromUnsigned : Int -> Int
-fromUnsigned value =
+toSigned : Int -> Int
+toSigned value =
     if value >= 2 ^ 31 then
         value - 2 ^ 32
 
@@ -35,8 +35,8 @@ fromUnsigned value =
         value
 
 
-toUnsigned : Int -> Int
-toUnsigned value =
+fromSigned : Int -> Int
+fromSigned value =
     if value < 0 then
         value + 2 ^ 32
 
@@ -57,5 +57,5 @@ popBase128 value =
 
 
 pushBase128 : Int -> Int -> Int
-pushBase128 sevenBitInt acc =
-    sevenBitInt + Bitwise.shiftLeftBy 7 acc
+pushBase128 base128 int =
+    base128 + Bitwise.shiftLeftBy 7 int
