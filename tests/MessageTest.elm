@@ -1,12 +1,8 @@
 module MessageTest exposing (suite)
 
-import Bytes
-import Bytes.Decode
-import Bytes.Encode
-import Dict exposing (Dict)
-import Expect exposing (Expectation)
-import Fuzz exposing (Fuzzer, bool, float, int, list, maybe, string)
-import Hex
+import Dict
+import Expect
+import Fuzz exposing (Fuzzer, bool, float, list, maybe, string)
 import Protobuf.Decode as Decode
 import Protobuf.Encode as Encode
 import Test exposing (..)
@@ -17,16 +13,30 @@ suite : Test
 suite =
     describe "Should successfully serialize and deserialize"
         [ describe "all integers"
-            [ fuzz int32 "integers" <|
-                expectMessage Encode.int32 Decode.int32
-            , fuzz uint32 "unsigned integers" <|
-                expectMessage Encode.uint32 Decode.uint32
-            , fuzz int32 "zig-zag encoded integers" <|
-                expectMessage Encode.sint32 Decode.sint32
-            , fuzz uint32 "fixed-size unsigned integers" <|
-                expectMessage Encode.fixed32 Decode.fixed32
-            , fuzz int32 "fixed-size integers" <|
-                expectMessage Encode.sfixed32 Decode.sfixed32
+            [ describe "32-bit"
+                [ fuzz int32 "integers" <|
+                    expectMessage Encode.int32 Decode.int32
+                , fuzz uint32 "unsigned integers" <|
+                    expectMessage Encode.uint32 Decode.uint32
+                , fuzz int32 "zig-zag encoded integers" <|
+                    expectMessage Encode.sint32 Decode.sint32
+                , fuzz uint32 "fixed-size unsigned integers" <|
+                    expectMessage Encode.fixed32 Decode.fixed32
+                , fuzz int32 "fixed-size integers" <|
+                    expectMessage Encode.sfixed32 Decode.sfixed32
+                ]
+            , describe "64-bit"
+                [ fuzz int64 "integers" <|
+                    expectMessage Encode.int64 Decode.int64
+                , fuzz int64 "unsigned integers" <|
+                    expectMessage Encode.uint64 Decode.uint64
+                , fuzz int64 "zig-zag encoded integers" <|
+                    expectMessage Encode.sint64 Decode.sint64
+                , fuzz int64 "fixed-size unsigned integers" <|
+                    expectMessage Encode.fixed64 Decode.fixed64
+                , fuzz int64 "fixed-site integers" <|
+                    expectMessage Encode.sfixed64 Decode.sfixed64
+                ]
             ]
         , describe "all floats"
             [ fuzz float "doubles" <|

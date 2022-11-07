@@ -3,9 +3,9 @@ module EncodeTest exposing (suite)
 import Bytes.Encode
 import Dict
 import Expect exposing (Expectation)
-import Fuzz exposing (Fuzzer, int, list, string)
 import Hex
 import Protobuf.Encode as Encode
+import Protobuf.Types.Int64 as Int64
 import Test exposing (..)
 
 
@@ -37,6 +37,77 @@ suite =
             , Encode.message [ ( 1, Encode.sfixed32 -64 ) ]
                 |> expectBytes "0DC0FFFFFF"
                 |> test "a negative sfixed32"
+            , Encode.message
+                [ ( 1
+                  , Encode.int64 <|
+                        Int64.fromInts 1 2147483645
+                  )
+                ]
+                |> expectBytes "08FDFFFFFF17"
+                |> test "an int64"
+            , Encode.message
+                [ ( 1
+                  , Encode.int64 <| Int64.fromInts 4294967295 4294954951
+                  )
+                ]
+                |> expectBytes "08C79FFFFFFFFFFFFFFF01"
+                |> test "a negative int64"
+            , Encode.message
+                [ ( 1, Encode.uint64 <| Int64.fromInts 0 2345678 ) ]
+                |> expectBytes "08CE958F01"
+                |> test "an uint64"
+            , Encode.message
+                [ ( 1, Encode.uint64 <| Int64.fromInts 0xFFFFFFFF 0xFFFFFFFF ) ]
+                |> expectBytes "08FFFFFFFFFFFFFFFFFF01"
+                |> test "a large uint64"
+            , Encode.message
+                [ ( 1
+                  , Encode.sint64 <|
+                        Int64.fromInts 1 2147483645
+                  )
+                ]
+                |> expectBytes "08FAFFFFFF2F"
+                |> test "a sint64"
+            , Encode.message
+                [ ( 1
+                  , Encode.sint64 <|
+                        Int64.fromInts -1 -12345
+                  )
+                ]
+                |> expectBytes "08F1C001"
+                |> test "a negative sint64"
+            , Encode.message
+                [ ( 1
+                  , Encode.sfixed64 <|
+                        Int64.fromInts 1 2147483645
+                  )
+                ]
+                |> expectBytes "09FDFFFF7F01000000"
+                |> test "a sfixed64"
+            , Encode.message
+                [ ( 1
+                  , Encode.sfixed64 <|
+                        Int64.fromInts -1 -2147483645
+                  )
+                ]
+                |> expectBytes "0903000080FFFFFFFF"
+                |> test "a negative sfixed64"
+            , Encode.message
+                [ ( 1
+                  , Encode.fixed64 <|
+                        Int64.fromInts 1 2147483645
+                  )
+                ]
+                |> expectBytes "09FDFFFF7F01000000"
+                |> test "a fixed64"
+            , Encode.message
+                [ ( 1
+                  , Encode.fixed64 <|
+                        Int64.fromInts 0xAABBCCDD 0x11223344
+                  )
+                ]
+                |> expectBytes "0944332211DDCCBBAA"
+                |> test "a large fixed64"
             ]
         , describe "floats"
             [ Encode.message [ ( 1, Encode.double 0.01 ) ]

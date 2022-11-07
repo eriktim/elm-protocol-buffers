@@ -26,12 +26,12 @@ boundaries of our application, e.g. when talking to servers. Protobuf forces
 you to specify the interchange format explicity up front, making it
 **type-safe**. It also:
 
-* makes you **decouple** code for data exchange from your business logic,
+- makes you **decouple** code for data exchange from your business logic,
   enabling your application to evolve over time;
-* makes you send **fewer bytes** over the wire;
-* allows you to **generate code** using the same data interchange format for
+- makes you send **fewer bytes** over the wire;
+- allows you to **generate code** using the same data interchange format for
   your backend as well;
-* is Google's **_lingua franca_** for data.
+- is Google's **_lingua franca_** for data.
 
 This package provides an API to help converting between Elm values and bytes
 by implementing Protocol Buffers. `elm-protocol-buffers` also opens the door to
@@ -211,17 +211,15 @@ setType value model =
 This packages aims to support both `proto2` and `proto3`. However, there are
 some limitations:
 
-* JavaScript uses 64-bit floating point
+- JavaScript uses 64-bit floating point
   [numbers](https://tc39.github.io/ecma262/#sec-ecmascript-language-types-number-type)
   for both integers and floats. Integers are only considered safe to use up to
-  about 54 bits. Therefore **all 64-bit integer variants are not supported** by
-  this package.
+  about 54 bits. For 64-bit integers, make sure to use `Int64` and its related functions.
 
-* Unknown fields are well-formed protocol buffer serialized data representing
+- Unknown fields are well-formed protocol buffer serialized data representing
   fields that the decoder does not recognize (for example when the field is
   removed from the `.proto` file but the server is not yet updated). Currently,
   these fields are ignored and hence are **lost when re-serializing messages**.
 
-* [extensions](https://developers.google.com/protocol-buffers/docs/proto#extensions)
+- [extensions](https://developers.google.com/protocol-buffers/docs/proto#extensions)
   are currently **not supported**.
-

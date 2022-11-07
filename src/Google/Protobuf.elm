@@ -1079,7 +1079,7 @@ toDurationEncoder model =
 
 {-| -}
 toEmptyEncoder : Empty -> Encode.Encoder
-toEmptyEncoder model =
+toEmptyEncoder _ =
     Encode.message
         []
 

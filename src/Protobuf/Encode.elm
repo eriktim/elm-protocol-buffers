@@ -1,6 +1,6 @@
 module Protobuf.Encode exposing
     ( encode, Encoder, message
-    , int32, uint32, sint32, fixed32, sfixed32
+    , int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
     , double, float
     , string
     , bool
@@ -28,7 +28,7 @@ module Protobuf.Encode exposing
 
 # Integers
 
-@docs int32, uint32, sint32, fixed32, sfixed32
+@docs int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
 
 
 # Floats
@@ -66,7 +66,11 @@ import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
+import Internal.Int32
+import Internal.Int64
+import Internal.IntOperations exposing (IntOperations)
 import Internal.Protobuf exposing (WireType(..))
+import Protobuf.Types.Int64 as Int64 exposing (Int64)
 
 
 
@@ -141,7 +145,8 @@ encode encoder =
                 |> Encode.encode
 
         NoEncoder ->
-            Encode.encode <| Encode.sequence []
+            Encode.sequence []
+                |> Encode.encode
 
 
 {-| Encode a record into a message. For this you need to provide a list of
@@ -217,7 +222,7 @@ Note that for `proto2` the `Unrecognized Int` field can be left out.
 -}
 int32 : Int -> Encoder
 int32 =
-    Encoder VarInt << varInt
+    intEncoder Internal.Int32.operations
 
 
 {-| Encode integers from `0` to `4294967295` into a message.
@@ -229,7 +234,7 @@ Uses variable-length encoding.
 -}
 uint32 : Int -> Encoder
 uint32 =
-    Encoder VarInt << varInt << unsigned
+    uintEncoder Internal.Int32.operations
 
 
 {-| Encode integers from `-2147483648` to `2147483647` into a message. Uses
@@ -243,7 +248,7 @@ efficiently than [`int32`](#int32).
 -}
 sint32 : Int -> Encoder
 sint32 =
-    Encoder VarInt << varInt << zigZag
+    sintEncoder Internal.Int32.operations
 
 
 {-| Encode integers from `0` to `4294967295` into a message. Always four bytes.
@@ -270,6 +275,56 @@ Always four bytes.
 sfixed32 : Int -> Encoder
 sfixed32 v =
     Encoder Bit32 ( 4, Encode.signedInt32 LE v )
+
+
+{-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message. Uses
+variable-length encoding. Inefficient for encoding negative numbers – if your
+field is likely to have negative values, use [`sint64`](#sint64) instead.
+-}
+int64 : Int64 -> Encoder
+int64 =
+    intEncoder Internal.Int64.operations
+
+
+{-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message. Uses
+variable-length encoding. These encoder encodes negative numbers more
+efficiently than [`int64`](#int64).
+-}
+sint64 : Int64 -> Encoder
+sint64 =
+    sintEncoder Internal.Int64.operations
+
+
+{-| Encode integers from `0` to `18446744073709551615` into a message.
+Uses variable-length encoding.
+-}
+uint64 : Int64 -> Encoder
+uint64 =
+    uintEncoder Internal.Int64.operations
+
+
+{-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message.
+Always eight bytes.
+-}
+sfixed64 : Int64 -> Encoder
+sfixed64 =
+    Int64.toInts
+        >> (\( higher, lower ) ->
+                Encode.sequence
+                    [ Encode.unsignedInt32 LE lower
+                    , Encode.unsignedInt32 LE higher
+                    ]
+           )
+        >> Tuple.pair 8
+        >> Encoder Bit64
+
+
+{-| Encode integers from `0` to `18446744073709551615` into a message.
+Always eight bytes.
+-}
+fixed64 : Int64 -> Encoder
+fixed64 =
+    sfixed64
 
 
 
@@ -335,12 +390,12 @@ string v =
 -}
 bool : Bool -> Encoder
 bool v =
-    Encoder VarInt <|
+    int32 <|
         if v then
-            varInt 1
+            1
 
         else
-            varInt 0
+            0
 
 
 
@@ -481,9 +536,9 @@ sequence : List ( Int, Encode.Encoder ) -> ( Int, Encode.Encoder )
 sequence items =
     let
         width =
-            List.sum <| List.map Tuple.first items
+            List.map Tuple.first items |> List.sum
     in
-    ( width, Encode.sequence <| List.map Tuple.second items )
+    ( width, List.map Tuple.second items |> Encode.sequence )
 
 
 toKeyValuePairEncoder : ( Int, Encoder ) -> ( Int, Encode.Encoder )
@@ -539,7 +594,7 @@ tag : Int -> WireType -> ( Int, Encode.Encoder )
 tag fieldNumber wireType =
     let
         encodeTag base4 =
-            varInt (Bitwise.or (Bitwise.shiftLeftBy 3 fieldNumber) base4)
+            varInt32 (Bitwise.or (Bitwise.shiftLeftBy 3 fieldNumber) base4)
     in
     case wireType of
         VarInt ->
@@ -549,7 +604,7 @@ tag fieldNumber wireType =
             encodeTag 1
 
         LengthDelimited width ->
-            sequence [ encodeTag 2, varInt width ]
+            sequence [ encodeTag 2, varInt32 width ]
 
         StartGroup ->
             encodeTag 3
@@ -565,40 +620,43 @@ tag fieldNumber wireType =
 -- VARINT
 
 
-varInt : Int -> ( Int, Encode.Encoder )
-varInt value =
+intEncoder : IntOperations int -> int -> Encoder
+intEncoder config =
+    Encoder VarInt << varInt config
+
+
+sintEncoder : IntOperations int -> int -> Encoder
+sintEncoder config =
+    intEncoder config << config.toZigZag
+
+
+uintEncoder : IntOperations int -> int -> Encoder
+uintEncoder config =
+    intEncoder config << config.toSigned
+
+
+varInt32 : Int -> ( Int, Encode.Encoder )
+varInt32 =
+    varInt Internal.Int32.operations
+
+
+varInt : IntOperations int -> int -> ( Int, Encode.Encoder )
+varInt config value =
     let
         encoders =
-            toVarIntEncoders value
+            toVarIntEncoders config value
     in
     ( List.length encoders, Encode.sequence encoders )
 
 
-unsigned : Int -> Int
-unsigned value =
-    if value >= 2 ^ 31 then
-        value - 2 ^ 32
-
-    else
-        value
-
-
-zigZag : Int -> Int
-zigZag value =
-    Bitwise.xor (Bitwise.shiftRightBy 31 value) (Bitwise.shiftLeftBy 1 value)
-
-
-toVarIntEncoders : Int -> List Encode.Encoder
-toVarIntEncoders value =
+toVarIntEncoders : IntOperations int -> int -> List Encode.Encoder
+toVarIntEncoders config value =
     let
-        base128 =
-            Bitwise.and 0x7F value
-
-        higherBits =
-            Bitwise.shiftRightZfBy 7 value
+        ( base128, higherBits ) =
+            config.popBase128 value
     in
-    if higherBits /= 0x00 then
-        Encode.unsignedInt8 (Bitwise.or 0x80 base128) :: toVarIntEncoders higherBits
+    if higherBits == config.fromBase128 0 then
+        [ Encode.unsignedInt8 base128 ]
 
     else
-        [ Encode.unsignedInt8 base128 ]
+        Encode.unsignedInt8 (Bitwise.or 0x80 base128) :: toVarIntEncoders config higherBits

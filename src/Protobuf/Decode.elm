@@ -1,7 +1,7 @@
 module Protobuf.Decode exposing
     ( Decoder, decode, expectBytes, FieldDecoder, message
     , required, optional, repeated, mapped, oneOf
-    , int32, uint32, sint32, fixed32, sfixed32
+    , int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
     , double, float
     , string
     , bool
@@ -27,7 +27,7 @@ values.
 
 # Integers
 
-@docs int32, uint32, sint32, fixed32, sfixed32
+@docs int32, uint32, sint32, fixed32, sfixed32, int64, uint64, sint64, fixed64, sfixed64
 
 
 # Floats
@@ -66,7 +66,11 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode
 import Dict exposing (Dict)
 import Http
+import Internal.Int32
+import Internal.Int64
+import Internal.IntOperations exposing (IntOperations)
 import Internal.Protobuf exposing (WireType(..))
+import Protobuf.Types.Int64 as Int64 exposing (Int64)
 import Set
 
 
@@ -467,21 +471,21 @@ oneOf decoders set =
 -}
 int32 : Decoder Int
 int32 =
-    packedDecoder VarInt varIntDecoder
+    intDecoder Internal.Int32.operations
 
 
 {-| Decode a variable number of bytes into an integer from 0 to 4294967295.
 -}
 uint32 : Decoder Int
 uint32 =
-    packedDecoder VarInt (Decode.map (Tuple.mapSecond unsigned) varIntDecoder)
+    uintDecoder Internal.Int32.operations
 
 
 {-| Decode a variable number of bytes into an integer from -2147483648 to 2147483647.
 -}
 sint32 : Decoder Int
 sint32 =
-    packedDecoder VarInt (Decode.map (Tuple.mapSecond zigZag) varIntDecoder)
+    sintDecoder Internal.Int32.operations
 
 
 {-| Decode four bytes into an integer from 0 to 4294967295.
@@ -496,6 +500,54 @@ fixed32 =
 sfixed32 : Decoder Int
 sfixed32 =
     packedDecoder Bit32 (Decode.map (Tuple.pair 4) (Decode.signedInt32 LE))
+
+
+{-| Decode a variable number of bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
+-}
+int64 : Decoder Int64
+int64 =
+    intDecoder Internal.Int64.operations
+
+
+{-| Decode a variable number of bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
+-}
+sint64 : Decoder Int64
+sint64 =
+    sintDecoder Internal.Int64.operations
+
+
+{-| Decode a variable number of bytes into an integer from `0` to `18446744073709551615`.
+-}
+uint64 : Decoder Int64
+uint64 =
+    uintDecoder Internal.Int64.operations
+
+
+{-| Decode a eight bytes into an integer from `0` to `18446744073709551615`.
+-}
+fixed64 : Decoder Int64
+fixed64 =
+    fixed64Decoder <|
+        Decode.map2 (\lower higher -> Int64.fromInts higher lower)
+            (Decode.unsignedInt32 LE)
+            (Decode.unsignedInt32 LE)
+
+
+{-| Decode eight bytes into an integer from `-9223372036854775808` to `9223372036854775807`.
+-}
+sfixed64 : Decoder Int64
+sfixed64 =
+    fixed64
+
+
+{-| Decode 64 bits into a data type of your choice.
+If you are using this function make sure that you are always consuming exactly 64 bits.
+-}
+fixed64Decoder : Decode.Decoder int64Type -> Decoder int64Type
+fixed64Decoder decoder =
+    decoder
+        |> Decode.map (Tuple.pair 8)
+        |> packedDecoder Bit64
 
 
 
@@ -535,7 +587,9 @@ string =
 -}
 bool : Decoder Bool
 bool =
-    packedDecoder VarInt (Decode.map (Tuple.mapSecond ((/=) 0)) varIntDecoder)
+    varIntDecoder Internal.Int32.operations
+        |> Decode.map (Tuple.mapSecond ((/=) 0))
+        |> packedDecoder VarInt
 
 
 
@@ -694,7 +748,7 @@ stepMessage width state =
 
 tagDecoder : Decode.Decoder ( Int, ( Int, WireType ) )
 tagDecoder =
-    varIntDecoder
+    varIntDecoder Internal.Int32.operations
         |> Decode.andThen
             (\( usedBytes, value ) ->
                 let
@@ -710,7 +764,7 @@ tagDecoder =
                             Decode.succeed ( 0, Bit64 )
 
                         2 ->
-                            Decode.map (Tuple.mapSecond LengthDelimited) varIntDecoder
+                            Decode.map (Tuple.mapSecond LengthDelimited) (varIntDecoder Internal.Int32.operations)
 
                         3 ->
                             Decode.succeed ( 0, StartGroup )
@@ -726,16 +780,39 @@ tagDecoder =
             )
 
 
-varIntDecoder : Decode.Decoder ( Int, Int )
-varIntDecoder =
+intDecoder : IntOperations int -> Decoder int
+intDecoder =
+    varIntDecoder >> packedDecoder VarInt
+
+
+sintDecoder : IntOperations int -> Decoder int
+sintDecoder config =
+    varIntDecoder config
+        |> Decode.map (Tuple.mapSecond config.fromZigZag)
+        |> packedDecoder VarInt
+
+
+uintDecoder : IntOperations int -> Decoder int
+uintDecoder config =
+    varIntDecoder config
+        |> Decode.map (Tuple.mapSecond config.fromSigned)
+        |> packedDecoder VarInt
+
+
+varIntDecoder : IntOperations int -> Decode.Decoder ( Int, int )
+varIntDecoder config =
     Decode.unsignedInt8
         |> Decode.andThen
             (\octet ->
                 if Bitwise.and 0x80 octet == 0x80 then
-                    Decode.map (\( usedBytes, value ) -> ( usedBytes + 1, Bitwise.and 0x7F octet + Bitwise.shiftLeftBy 7 value )) varIntDecoder
+                    Decode.map
+                        (\( usedBytes, value ) ->
+                            ( usedBytes + 1, config.pushBase128 (Bitwise.and 0x7F octet) value )
+                        )
+                        (varIntDecoder config)
 
                 else
-                    Decode.succeed ( 1, octet )
+                    Decode.succeed ( 1, config.fromBase128 octet )
             )
 
 
@@ -793,7 +870,7 @@ unknownFieldDecoder : WireType -> Decode.Decoder Int
 unknownFieldDecoder wireType =
     case wireType of
         VarInt ->
-            Decode.map Tuple.first varIntDecoder
+            Decode.map Tuple.first (varIntDecoder Internal.Int32.operations)
 
         Bit64 ->
             Decode.map (always 8) (Decode.bytes 8)
@@ -809,21 +886,3 @@ unknownFieldDecoder wireType =
 
         Bit32 ->
             Decode.map (always 4) (Decode.bytes 4)
-
-
-
--- VARINT
-
-
-unsigned : Int -> Int
-unsigned value =
-    if value < 0 then
-        value + 2 ^ 32
-
-    else
-        value
-
-
-zigZag : Int -> Int
-zigZag value =
-    Bitwise.xor (Bitwise.shiftRightZfBy 1 value) (-1 * Bitwise.and 1 value)
