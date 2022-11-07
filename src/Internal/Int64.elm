@@ -9,7 +9,7 @@ type Int64
 
 
 type alias Ints =
-    { lower : Int, higher : Int }
+    { higher : Int, lower : Int }
 
 
 fromInts : Int -> Int -> Int64
@@ -41,17 +41,17 @@ toZigZag value =
 
 fromZigZag : Int64 -> Int64
 fromZigZag value =
-    xor (shiftRightZfBy 1 value) (value |> andInt 1 |> negate)
+    xor (shiftRightZfBy 1 value) (value |> and 1 |> negate)
 
 
 popBase128 : Int64 -> ( Int, Int64 )
-popBase128 ((Int64 { lower }) as int64) =
+popBase128 ((Int64 { lower }) as int) =
     let
         base128 =
             Bitwise.and 0x7F lower
 
         higherBits =
-            shiftRightZfBy 7 int64
+            shiftRightZfBy 7 int
     in
     ( base128, higherBits )
 
@@ -71,7 +71,7 @@ fromBase128 =
 
 
 shiftRightZfBy : Int -> Int64 -> Int64
-shiftRightZfBy n (Int64 { lower, higher }) =
+shiftRightZfBy n (Int64 { higher, lower }) =
     if n > 32 then
         fromInts 0 (Bitwise.shiftRightZfBy n higher)
 
@@ -92,35 +92,34 @@ shiftRightZfBy n (Int64 { lower, higher }) =
 shiftRightBy63 : Int64 -> Int64
 shiftRightBy63 (Int64 { higher }) =
     let
-        zeroOrMinusOne =
+        onlyOnesOrZeros =
             Bitwise.shiftRightBy 31 higher
     in
-    fromInts zeroOrMinusOne zeroOrMinusOne
+    fromInts onlyOnesOrZeros onlyOnesOrZeros
 
 
-andInt : Int -> Int64 -> Int64
-andInt n (Int64 { lower }) =
+and : Int -> Int64 -> Int64
+and n (Int64 { lower }) =
     fromInts 0 (Bitwise.and n lower)
 
 
-{-| Adds int to lower bits. Does NOT handle overflow!
--}
 addUnsafe : Int -> Int64 -> Int64
-addUnsafe n (Int64 { lower, higher }) =
+addUnsafe n (Int64 { higher, lower }) =
+    -- ignore possible overflow
     fromInts higher (n + lower)
 
 
 negate : Int64 -> Int64
-negate ((Int64 { lower, higher }) as int64) =
+negate ((Int64 { higher, lower }) as int) =
     if lower == 0 && higher == 0 then
-        int64
+        int
 
     else
         fromInts (Bitwise.complement higher) (Bitwise.complement lower + 1)
 
 
 shiftLeftBy : Int -> Int64 -> Int64
-shiftLeftBy n (Int64 { lower, higher }) =
+shiftLeftBy n (Int64 { higher, lower }) =
     if n > 32 then
         fromInts (Bitwise.shiftLeftBy n lower) 0
 

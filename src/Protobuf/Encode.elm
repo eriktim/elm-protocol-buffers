@@ -238,7 +238,7 @@ uint32 =
 
 
 {-| Encode integers from `-2147483648` to `2147483647` into a message. Uses
-variable-length encoding. These encoder encodes negative numbers more
+variable-length encoding. This encoder encodes negative numbers more
 efficiently than [`int32`](#int32).
 
      encode (sint32 0)    -- <00>
@@ -287,7 +287,7 @@ int64 =
 
 
 {-| Encode integers from `-9223372036854775808` to `9223372036854775807` into a message. Uses
-variable-length encoding. These encoder encodes negative numbers more
+variable-length encoding. This encoder encodes negative numbers more
 efficiently than [`int64`](#int64).
 -}
 sint64 : Int64 -> Encoder
